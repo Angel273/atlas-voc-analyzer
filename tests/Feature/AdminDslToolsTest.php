@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\AiRun;
+use App\Models\AiToolCall;
 use App\Models\DslTool;
 use App\Models\Permission;
 use App\Models\Role;
@@ -51,6 +53,50 @@ class AdminDslToolsTest extends TestCase
         $response->assertInertia(fn ($page) => $page
             ->component('Admin/Tools/Index')
             ->has('tools')
+        );
+    }
+
+    public function test_admin_can_view_tools_catalog_with_analytics_and_error_counts(): void
+    {
+        $run = AiRun::create([
+            'user_id' => $this->adminUser->id,
+            'status' => 'completed',
+            'tokens_used' => 500,
+            'latency_ms' => 450,
+            'started_at' => now(),
+            'completed_at' => now(),
+        ]);
+
+        AiToolCall::create([
+            'ai_run_id' => $run->id,
+            'tool_name' => 'query_data',
+            'arguments_sanitized' => ['metric' => 'nps'],
+            'status' => 'completed',
+            'duration_ms' => 100,
+            'requested_at' => now(),
+            'executed_at' => now(),
+        ]);
+
+        AiToolCall::create([
+            'ai_run_id' => $run->id,
+            'tool_name' => 'query_data',
+            'arguments_sanitized' => ['metric' => 'invalid'],
+            'status' => 'error',
+            'duration_ms' => 200,
+            'requested_at' => now(),
+            'executed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->get('/admin/tools');
+
+        $response->assertStatus(200);
+        $response->assertInertia(fn ($page) => $page
+            ->component('Admin/Tools/Index')
+            ->has('tools')
+            ->where('tools.0.name', 'query_data')
+            ->where('tools.0.stats.invocations', 2)
+            ->where('tools.0.stats.avg_duration_ms', 150)
+            ->where('tools.0.stats.errors', 1)
         );
     }
 

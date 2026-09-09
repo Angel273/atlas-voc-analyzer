@@ -60,7 +60,7 @@ export default function Login() {
                                 type="text"
                                 value={data.email}
                                 onChange={(e) => setData('email', e.target.value)}
-                                placeholder="analyst@atlas.local"
+                                placeholder="name@company.com"
                                 required
                                 autoFocus
                                 className="w-full px-4 py-2.5 bg-white border border-[#ccd1ca] text-[#18221d] text-sm focus:outline-none focus:border-[#18221d] rounded-none transition-colors"
@@ -112,13 +112,6 @@ export default function Login() {
                             <ArrowRight className="w-4 h-4" />
                         </button>
                     </form>
-
-                    <div className="mt-8 pt-6 border-t border-[#ccd1ca]/60 text-[12px] text-[#687169] space-y-1">
-                        <p className="font-semibold text-[#18221d]">Default Test Accounts:</p>
-                        <p>• Admin: <code className="text-[#18221d]">admin@atlas.local</code> / <code className="text-[#18221d]">password123</code></p>
-                        <p>• Analyst: <code className="text-[#18221d]">analyst@atlas.local</code> / <code className="text-[#18221d]">password123</code></p>
-                        <p>• Viewer: <code className="text-[#18221d]">viewer@atlas.local</code> / <code className="text-[#18221d]">password123</code></p>
-                    </div>
                 </div>
             </div>
 

@@ -10,6 +10,7 @@ use App\Services\Audit\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -29,11 +30,16 @@ class AdminDslToolsController extends Controller
             ->orderBy('name', 'asc')
             ->get();
 
-        // Calculate usage analytics per tool from ai_tool_calls
-        $toolStats = AiToolCall::selectRaw('tool_name, COUNT(*) as invocations, AVG(duration_ms) as avg_duration, SUM(CASE WHEN status = "error" THEN 1 ELSE 0 END) as errors')
-            ->groupBy('tool_name')
-            ->get()
-            ->keyBy('tool_name');
+        // Calculate usage analytics per tool from ai_tool_calls (PostgreSQL requires single quotes for string literals)
+        try {
+            $toolStats = AiToolCall::selectRaw("tool_name, COUNT(*) as invocations, AVG(duration_ms) as avg_duration, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors")
+                ->groupBy('tool_name')
+                ->get()
+                ->keyBy('tool_name');
+        } catch (\Throwable $e) {
+            Log::warning("Could not fetch tool usage stats: {$e->getMessage()}");
+            $toolStats = collect();
+        }
 
         $formattedTools = $tools->map(function (DslTool $t) use ($toolStats) {
             $stats = $toolStats->get($t->name);
@@ -53,8 +59,8 @@ class AdminDslToolsController extends Controller
                 'created_at' => $t->created_at?->format('d/m/Y H:i'),
                 'stats' => [
                     'invocations' => $stats ? (int) $stats->invocations : 0,
-                    'avg_duration_ms' => $stats ? (int) round($stats->avg_duration) : 0,
-                    'errors' => $stats ? (int) $stats->errors : 0,
+                    'avg_duration_ms' => $stats ? (int) round((float) ($stats->avg_duration ?? 0)) : 0,
+                    'errors' => $stats ? (int) ($stats->errors ?? 0) : 0,
                 ],
             ];
         });
@@ -86,7 +92,7 @@ class AdminDslToolsController extends Controller
             'is_builtin' => false,
             'is_active' => $validated['is_active'] ?? true,
             'created_by' => Auth::id(),
-            'sort_order' => DslTool::max('sort_order') + 1,
+            'sort_order' => ((int) DslTool::max('sort_order')) + 1,
         ]);
 
         $this->auditService->record(
