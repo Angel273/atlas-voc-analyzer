@@ -14,6 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/health', // Production health check per Section 51
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);

@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\Providers\GeminiProvider;
 use App\Services\Ai\Providers\MockAiProvider;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -30,6 +32,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        if (app()->environment('production') || env('APP_ENV') === 'production') {
+            URL::forceScheme('https');
+        }
+
+        // Generate relative paths for assets so Vite loads cleanly on any proxy, port, or domain
+        Vite::createAssetPathsUsing(function (string $path) {
+            return '/' . ltrim($path, '/');
+        });
     }
 }
