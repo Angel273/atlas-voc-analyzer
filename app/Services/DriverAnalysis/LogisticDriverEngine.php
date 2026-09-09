@@ -19,7 +19,7 @@ class LogisticDriverEngine
      * }> $surveys
      * @param  string  $metricName  'csat' or 'professionalism'
      */
-    public function analyze(array $surveys, string $metricName = 'csat'): array
+    public function analyze(array $surveys, string $metricName = 'csat', array $referenceCategories = []): array
     {
         $n = count($surveys);
         if ($n < 15) {
@@ -29,12 +29,17 @@ class LogisticDriverEngine
                 'sample_size' => $n,
                 'controlled_variables' => ['category', 'tenure_days', 'wave', 'supervisor', 'time'],
                 'reference_categories' => [],
+                'available_references' => [
+                    'categories' => [],
+                    'waves' => [],
+                    'supervisors' => [],
+                ],
                 'drivers' => [],
                 'diagnostics' => ['reason' => "Se requieren al menos 15 encuestas para la regresión logística (disponibles: {$n})."],
             ];
         }
 
-        // 1. Identify distinct categorical values and choose reference categories
+        // 1. Identify distinct categorical values and choose reference categories (most frequent or user-selected)
         $categoryCounts = [];
         $waveCounts = [];
         $supervisorCounts = [];
@@ -57,9 +62,42 @@ class LogisticDriverEngine
         arsort($waveCounts);
         arsort($supervisorCounts);
 
-        $refCategory = array_key_first($categoryCounts);
-        $refWave = array_key_first($waveCounts);
-        $refSupervisor = array_key_first($supervisorCounts);
+        $defaultRefCategory = (string) array_key_first($categoryCounts);
+        $defaultRefWave = (string) array_key_first($waveCounts);
+        $defaultRefSupervisor = (string) array_key_first($supervisorCounts);
+
+        $refCategory = (! empty($referenceCategories['category']) && array_key_exists((string) $referenceCategories['category'], $categoryCounts))
+            ? (string) $referenceCategories['category']
+            : $defaultRefCategory;
+
+        $refWave = (! empty($referenceCategories['wave']) && array_key_exists((string) $referenceCategories['wave'], $waveCounts))
+            ? (string) $referenceCategories['wave']
+            : $defaultRefWave;
+
+        $refSupervisor = (! empty($referenceCategories['supervisor']) && array_key_exists((string) $referenceCategories['supervisor'], $supervisorCounts))
+            ? (string) $referenceCategories['supervisor']
+            : $defaultRefSupervisor;
+
+        $availableReferences = [
+            'categories' => array_map(fn ($cat, $cnt) => [
+                'value' => (string) $cat,
+                'label' => (string) $cat,
+                'count' => $cnt,
+                'is_default' => (string) $cat === $defaultRefCategory,
+            ], array_keys($categoryCounts), array_values($categoryCounts)),
+            'waves' => array_map(fn ($w, $cnt) => [
+                'value' => (string) $w,
+                'label' => "Ola {$w}",
+                'count' => $cnt,
+                'is_default' => (string) $w === $defaultRefWave,
+            ], array_keys($waveCounts), array_values($waveCounts)),
+            'supervisors' => array_map(fn ($sup, $cnt) => [
+                'value' => (string) $sup,
+                'label' => (string) $sup,
+                'count' => $cnt,
+                'is_default' => (string) $sup === $defaultRefSupervisor,
+            ], array_keys($supervisorCounts), array_values($supervisorCounts)),
+        ];
 
         $minDate = ! empty($dates) ? min($dates) : now()->format('Y-m-d');
         $minTimestamp = strtotime($minDate);
@@ -71,30 +109,32 @@ class LogisticDriverEngine
         ];
 
         foreach ($categoryCounts as $catName => $count) {
-            if ($catName === $refCategory) {
+            $catStr = (string) $catName;
+            if ($catStr === $refCategory) {
                 continue;
             }
-            $columnNames[] = "Cat_{$catName}";
+            $columnNames[] = "Cat_{$catStr}";
             $columnMetadata[] = [
                 'type' => 'dummy',
                 'variable' => 'category',
-                'label' => $catName,
-                'name' => "Categoría: {$catName}",
+                'label' => $catStr,
+                'name' => "Categoría: {$catStr}",
                 'reference' => $refCategory,
                 'sample_size' => $count,
             ];
         }
 
         foreach ($waveCounts as $waveName => $count) {
-            if ($waveName === $refWave) {
+            $waveStr = (string) $waveName;
+            if ($waveStr === $refWave) {
                 continue;
             }
-            $columnNames[] = "Wave_{$waveName}";
+            $columnNames[] = "Wave_{$waveStr}";
             $columnMetadata[] = [
                 'type' => 'dummy',
                 'variable' => 'wave',
-                'label' => $waveName,
-                'name' => "Ola: {$waveName}",
+                'label' => $waveStr,
+                'name' => "Ola: {$waveStr}",
                 'reference' => $refWave,
                 'sample_size' => $count,
             ];
@@ -103,15 +143,16 @@ class LogisticDriverEngine
         $supLimit = 8;
         $activeSups = array_slice($supervisorCounts, 0, $supLimit, true);
         foreach ($activeSups as $supName => $count) {
-            if ($supName === $refSupervisor) {
+            $supStr = (string) $supName;
+            if ($supStr === $refSupervisor) {
                 continue;
             }
-            $columnNames[] = "Sup_{$supName}";
+            $columnNames[] = "Sup_{$supStr}";
             $columnMetadata[] = [
                 'type' => 'dummy',
                 'variable' => 'supervisor',
-                'label' => $supName,
-                'name' => "Supervisor: {$supName}",
+                'label' => $supStr,
+                'name' => "Supervisor: {$supStr}",
                 'reference' => $refSupervisor,
                 'sample_size' => $count,
             ];
@@ -142,9 +183,9 @@ class LogisticDriverEngine
         $y = [];
 
         foreach ($surveys as $s) {
-            $cat = trim($s['category'] ?? '') ?: 'Uncategorized';
-            $wave = trim($s['wave'] ?? '') ?: 'Unknown Wave';
-            $sup = trim($s['supervisor'] ?? '') ?: 'Unknown Sup';
+            $cat = trim((string) ($s['category'] ?? '')) ?: 'Uncategorized';
+            $wave = trim((string) ($s['wave'] ?? '')) ?: 'Unknown Wave';
+            $sup = trim((string) ($s['supervisor'] ?? '')) ?: 'Unknown Sup';
             $tenure = (float) ($s['tenure_days'] ?? 30);
             $sDate = substr((string) ($s['survey_date'] ?? $minDate), 0, 10);
             $daysSinceStart = (strtotime($sDate) - $minTimestamp) / 86400;
@@ -152,24 +193,27 @@ class LogisticDriverEngine
             $row = [1.0];
 
             foreach ($categoryCounts as $catName => $count) {
-                if ($catName === $refCategory) {
+                $catStr = (string) $catName;
+                if ($catStr === $refCategory) {
                     continue;
                 }
-                $row[] = ($cat === $catName) ? 1.0 : 0.0;
+                $row[] = ($cat === $catStr) ? 1.0 : 0.0;
             }
 
             foreach ($waveCounts as $waveName => $count) {
-                if ($waveName === $refWave) {
+                $waveStr = (string) $waveName;
+                if ($waveStr === $refWave) {
                     continue;
                 }
-                $row[] = ($wave === $waveName) ? 1.0 : 0.0;
+                $row[] = ($wave === $waveStr) ? 1.0 : 0.0;
             }
 
             foreach ($activeSups as $supName => $count) {
-                if ($supName === $refSupervisor) {
+                $supStr = (string) $supName;
+                if ($supStr === $refSupervisor) {
                     continue;
                 }
-                $row[] = ($sup === $supName) ? 1.0 : 0.0;
+                $row[] = ($sup === $supStr) ? 1.0 : 0.0;
             }
 
             $row[] = $tenure / 100.0;
@@ -332,6 +376,7 @@ class LogisticDriverEngine
                 'wave' => $refWave,
                 'supervisor' => $refSupervisor,
             ],
+            'available_references' => $availableReferences,
             'drivers' => $drivers,
             'diagnostics' => [
                 'model_type' => 'Logistic Regression (Newton-Raphson / IRLS)',

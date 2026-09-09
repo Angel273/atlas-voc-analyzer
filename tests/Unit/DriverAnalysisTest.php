@@ -136,4 +136,61 @@ class DriverAnalysisTest extends TestCase
         $this->assertLessThan(0, $billing['percentage_points']); // Negative impact
         $this->assertStringContainsString('pp', (string) $billing['estimated_effect']);
     }
+
+    public function test_driver_engine_respects_custom_reference_categories(): void
+    {
+        $engine = new NpsDriverEngine;
+
+        $surveys = [];
+        // Wave 1 has 70 surveys (default largest)
+        for ($i = 0; $i < 70; $i++) {
+            $surveys[] = [
+                'nps_score' => 0.5,
+                'category' => 'Customer Service',
+                'tenure_days' => 100,
+                'wave' => 'Wave 1',
+                'supervisor' => 'Sup Alfa',
+                'survey_date' => '2026-09-01',
+            ];
+        }
+
+        // Wave 2 has 30 surveys
+        for ($i = 0; $i < 30; $i++) {
+            $surveys[] = [
+                'nps_score' => -0.2,
+                'category' => 'Billing & Payments',
+                'tenure_days' => 40,
+                'wave' => 'Wave 2',
+                'supervisor' => 'Sup Beta',
+                'survey_date' => '2026-09-02',
+            ];
+        }
+
+        // 1. Default run -> Wave 1 is reference
+        $defaultResult = $engine->analyze($surveys);
+        $this->assertEquals('Wave 1', $defaultResult['reference_categories']['wave']);
+        $this->assertArrayHasKey('available_references', $defaultResult);
+        $this->assertCount(2, $defaultResult['available_references']['waves']);
+
+        // 2. Custom run: Request Wave 2 as reference
+        $customResult = $engine->analyze($surveys, [
+            'wave' => 'Wave 2',
+            'category' => 'Billing & Payments',
+        ]);
+
+        $this->assertEquals('Wave 2', $customResult['reference_categories']['wave']);
+        $this->assertEquals('Billing & Payments', $customResult['reference_categories']['category']);
+
+        // Wave 1 must now be in the driver list evaluated against Wave 2
+        $wave1Driver = null;
+        foreach ($customResult['drivers'] as $d) {
+            if ($d['driver'] === 'Ola: Wave 1') {
+                $wave1Driver = $d;
+                break;
+            }
+        }
+        $this->assertNotNull($wave1Driver);
+        $this->assertEquals('Wave 2', $wave1Driver['reference_category']);
+        $this->assertStringContainsString('respecto a Wave 2', $wave1Driver['explanation']);
+    }
 }

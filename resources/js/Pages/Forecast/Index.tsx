@@ -21,6 +21,7 @@ import {
     ArrowRight,
     HelpCircle,
     Activity,
+    Sliders,
 } from 'lucide-react';
 
 interface ForecastResult {
@@ -97,6 +98,19 @@ interface DriverItem {
     explanation: string;
 }
 
+interface AvailableRefOption {
+    value: string;
+    label: string;
+    count: number;
+    is_default: boolean;
+}
+
+interface AvailableReferences {
+    categories: AvailableRefOption[];
+    waves: AvailableRefOption[];
+    supervisors: AvailableRefOption[];
+}
+
 interface DriverAnalysisData {
     id?: number;
     status: string;
@@ -104,6 +118,7 @@ interface DriverAnalysisData {
     sample_size: number;
     controlled_variables: string[];
     reference_categories: Record<string, string>;
+    available_references?: AvailableReferences;
     drivers: DriverItem[];
     diagnostics: any;
     ai_interpretation?: string;
@@ -113,6 +128,8 @@ interface DriverAnalysisData {
 interface Props {
     forecasts: { data: Forecast[]; links: any[] };
     supervisors: string[];
+    waves?: string[];
+    categories?: string[];
 }
 
 interface ChatMessage {
@@ -167,7 +184,7 @@ function formatFullDate(dateStr: string): string {
     return cleanStr;
 }
 
-export default function ForecastIndex({ forecasts, supervisors }: Props) {
+export default function ForecastIndex({ forecasts, supervisors, waves = [], categories = [] }: Props) {
     // Active Tab: 'forecast' or 'drivers'
     const [activeTab, setActiveTab] = useState<'forecast' | 'drivers'>('forecast');
 
@@ -181,6 +198,9 @@ export default function ForecastIndex({ forecasts, supervisors }: Props) {
     // Driver Analysis State
     const [driverMetric, setDriverMetric] = useState<string>('nps');
     const [driverSupervisor, setDriverSupervisor] = useState<string>('');
+    const [refCategory, setRefCategory] = useState<string>('');
+    const [refSupervisor, setRefSupervisor] = useState<string>('');
+    const [refWave, setRefWave] = useState<string>('');
     const [driverAnalyzing, setDriverAnalyzing] = useState<boolean>(false);
     const [driverAnalysis, setDriverAnalysis] = useState<DriverAnalysisData | null>(null);
     const [showDiagnosticsAccordion, setShowDiagnosticsAccordion] = useState<boolean>(false);
@@ -257,9 +277,13 @@ export default function ForecastIndex({ forecasts, supervisors }: Props) {
     };
 
     // Run Driver Analysis
-    const handleRunDriverAnalysis = async () => {
+    const handleRunDriverAnalysis = async (customRefs?: { category?: string; supervisor?: string; wave?: string }) => {
         setDriverAnalyzing(true);
         try {
+            const catToSend = customRefs?.category !== undefined ? customRefs.category : refCategory;
+            const supToSend = customRefs?.supervisor !== undefined ? customRefs.supervisor : refSupervisor;
+            const waveToSend = customRefs?.wave !== undefined ? customRefs.wave : refWave;
+
             const res = await fetch('/forecast/drivers', {
                 method: 'POST',
                 headers: {
@@ -270,6 +294,9 @@ export default function ForecastIndex({ forecasts, supervisors }: Props) {
                 body: JSON.stringify({
                     metric: driverMetric,
                     supervisor: driverSupervisor || null,
+                    ref_category: catToSend || null,
+                    ref_supervisor: supToSend || null,
+                    ref_wave: waveToSend || null,
                 }),
             });
 
@@ -925,13 +952,118 @@ export default function ForecastIndex({ forecasts, supervisors }: Props) {
 
                             <div className="flex items-end">
                                 <button
-                                    onClick={handleRunDriverAnalysis}
+                                    onClick={() => handleRunDriverAnalysis()}
                                     disabled={driverAnalyzing}
                                     className="w-full py-2.5 bg-[#18221d] text-white text-xs font-semibold uppercase tracking-wider hover:bg-black transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                     <Activity className="w-4 h-4" />
                                     <span>{driverAnalyzing ? 'Calculando regresión...' : 'Ejecutar Análisis de Drivers'}</span>
                                 </button>
+                            </div>
+                        </div>
+
+                        {/* Reference Groups (Líneas Base de Comparación) */}
+                        <div className="border-t border-[#ccd1ca]/60 pt-4 mb-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <Sliders className="w-4 h-4 text-[#18221d]" />
+                                        <span className="text-xs font-bold uppercase tracking-wider text-[#18221d]">
+                                            Líneas Base de Comparación (Grupos de Referencia)
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-[#687169] mt-0.5">
+                                        Selecciona contra qué grupo comparar cada dimensión. Por defecto, Atlas utiliza automáticamente el grupo con mayor volumen muestral.
+                                    </p>
+                                </div>
+                                {(refCategory || refSupervisor || refWave) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setRefCategory('');
+                                            setRefSupervisor('');
+                                            setRefWave('');
+                                            handleRunDriverAnalysis({ category: '', supervisor: '', wave: '' });
+                                        }}
+                                        className="text-[11px] font-mono text-[#8a6d3b] hover:underline self-start sm:self-auto"
+                                    >
+                                        Restablecer a valores automáticos
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#687169] mb-1">
+                                        Categoría de Referencia
+                                    </label>
+                                    <select
+                                        value={refCategory}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setRefCategory(val);
+                                            handleRunDriverAnalysis({ category: val });
+                                        }}
+                                        className="w-full p-2.5 bg-white border border-[#ccd1ca] text-xs text-[#18221d] focus:outline-none focus:border-[#18221d]"
+                                    >
+                                        <option value="">
+                                            Automática (Mayor muestra{driverAnalysis?.reference_categories?.category ? `: ${driverAnalysis.reference_categories.category}` : ''})
+                                        </option>
+                                        {(driverAnalysis?.available_references?.categories || categories.map(c => ({ value: c, label: c, count: 0, is_default: false }))).map((cat) => (
+                                            <option key={cat.value} value={cat.value}>
+                                                {cat.label} {cat.count > 0 ? `(n=${cat.count})` : ''} {cat.is_default ? '★ Mayor volumen' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#687169] mb-1">
+                                        Supervisor de Referencia
+                                    </label>
+                                    <select
+                                        value={refSupervisor}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setRefSupervisor(val);
+                                            handleRunDriverAnalysis({ supervisor: val });
+                                        }}
+                                        className="w-full p-2.5 bg-white border border-[#ccd1ca] text-xs text-[#18221d] focus:outline-none focus:border-[#18221d]"
+                                    >
+                                        <option value="">
+                                            Automático (Mayor muestra{driverAnalysis?.reference_categories?.supervisor ? `: ${driverAnalysis.reference_categories.supervisor}` : ''})
+                                        </option>
+                                        {(driverAnalysis?.available_references?.supervisors || supervisors.map(s => ({ value: s, label: s, count: 0, is_default: false }))).map((sup) => (
+                                            <option key={sup.value} value={sup.value}>
+                                                {sup.label} {sup.count > 0 ? `(n=${sup.count})` : ''} {sup.is_default ? '★ Mayor volumen' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#687169] mb-1">
+                                        Ola (Wave) de Referencia
+                                    </label>
+                                    <select
+                                        value={refWave}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setRefWave(val);
+                                            handleRunDriverAnalysis({ wave: val });
+                                        }}
+                                        className="w-full p-2.5 bg-white border border-[#ccd1ca] text-xs text-[#18221d] focus:outline-none focus:border-[#18221d]"
+                                    >
+                                        <option value="">
+                                            Automática (Mayor muestra{driverAnalysis?.reference_categories?.wave ? `: Ola ${driverAnalysis.reference_categories.wave}` : ''})
+                                        </option>
+                                        {(driverAnalysis?.available_references?.waves || waves.map(w => ({ value: w, label: `Ola ${w}`, count: 0, is_default: false }))).map((w) => (
+                                            <option key={w.value} value={w.value}>
+                                                {w.label} {w.count > 0 ? `(n=${w.count})` : ''} {w.is_default ? '★ Mayor volumen' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -957,6 +1089,27 @@ export default function ForecastIndex({ forecasts, supervisors }: Props) {
                                     </p>
                                 </div>
                             </div>
+
+                            {/* Active Reference Group Banner */}
+                            {driverAnalysis.reference_categories && (
+                                <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 bg-[#f7f6f1] border border-[#ccd1ca] text-xs">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-bold text-[#18221d] uppercase tracking-wider text-[11px]">Línea Base Activa:</span>
+                                        <span className="px-2 py-0.5 bg-white border border-[#ccd1ca] text-[#18221d] font-mono text-[11px]">
+                                            Categoría: <strong>{driverAnalysis.reference_categories.category || 'N/A'}</strong>
+                                        </span>
+                                        <span className="px-2 py-0.5 bg-white border border-[#ccd1ca] text-[#18221d] font-mono text-[11px]">
+                                            Supervisor: <strong>{driverAnalysis.reference_categories.supervisor || 'N/A'}</strong>
+                                        </span>
+                                        <span className="px-2 py-0.5 bg-white border border-[#ccd1ca] text-[#18221d] font-mono text-[11px]">
+                                            Ola: <strong>Ola {driverAnalysis.reference_categories.wave || 'N/A'}</strong>
+                                        </span>
+                                    </div>
+                                    <span className="text-[11px] text-[#687169]">
+                                        Todos los coeficientes miden la diferencia respecto a esta combinación de referencia.
+                                    </span>
+                                </div>
+                            )}
 
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-xs border-collapse">

@@ -10,6 +10,7 @@ use App\Services\Forecasting\ForecastEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,11 +25,15 @@ class ForecastController extends Controller
     public function index(Request $request): Response
     {
         $forecasts = Forecast::with(['results', 'user'])->orderBy('id', 'desc')->paginate(10);
-        $supervisors = Survey::distinct()->whereNotNull('supervisor')->pluck('supervisor')->toArray();
+        $supervisors = Survey::distinct()->whereNotNull('supervisor')->where('supervisor', '!=', '')->orderBy('supervisor')->pluck('supervisor')->toArray();
+        $waves = Survey::distinct()->whereNotNull('wave')->where('wave', '!=', '')->orderBy('wave')->pluck('wave')->toArray();
+        $categories = DB::table('categories')->orderBy('name')->pluck('name')->toArray();
 
         return Inertia::render('Forecast/Index', [
             'forecasts' => $forecasts,
             'supervisors' => $supervisors,
+            'waves' => $waves,
+            'categories' => $categories,
         ]);
     }
 
@@ -148,6 +153,9 @@ class ForecastController extends Controller
             'wave' => ['nullable', 'string'],
             'date_from' => ['nullable', 'string'],
             'date_to' => ['nullable', 'string'],
+            'ref_category' => ['nullable', 'string'],
+            'ref_supervisor' => ['nullable', 'string'],
+            'ref_wave' => ['nullable', 'string'],
         ]);
 
         $user = Auth::user();
@@ -159,9 +167,16 @@ class ForecastController extends Controller
             'date_to' => $validated['date_to'] ?? null,
         ]);
 
+        $referenceCategories = array_filter([
+            'category' => $validated['ref_category'] ?? null,
+            'supervisor' => $validated['ref_supervisor'] ?? null,
+            'wave' => $validated['ref_wave'] ?? null,
+        ]);
+
         $result = $this->driverAnalysisService->execute(
             metric: $validated['metric'],
             filters: $filters,
+            referenceCategories: $referenceCategories,
             user: $user
         );
 

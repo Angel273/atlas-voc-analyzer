@@ -192,6 +192,40 @@ class ForecastFlowTest extends TestCase
         ]);
     }
 
+    public function test_user_can_execute_driver_analysis_with_custom_reference_categories(): void
+    {
+        $import = Import::first();
+
+        // Seed surveys with 2 distinct waves and supervisors
+        for ($i = 1; $i <= 20; $i++) {
+            Survey::create([
+                'survey_id' => "SRV_CUSTOM_REF_{$i}",
+                'nps_score' => ($i % 2 === 0) ? 0.9 : -0.1,
+                'csat_score' => 0.8,
+                'professionalism_score' => 0.9,
+                'agent_bms' => 'AGT_1',
+                'supervisor' => ($i <= 14) ? 'SUP_DEFAULT' : 'SUP_CUSTOM',
+                'wave' => ($i <= 14) ? 'WAVE_DEFAULT' : 'WAVE_CUSTOM',
+                'survey_date' => '2026-09-05',
+                'record_hash' => "h_custom_ref_{$i}",
+                'import_id' => $import->id,
+            ]);
+        }
+
+        // Request with custom wave and supervisor references
+        $response = $this->actingAs($this->user)->postJson('/forecast/drivers', [
+            'metric' => 'nps',
+            'ref_wave' => 'WAVE_CUSTOM',
+            'ref_supervisor' => 'SUP_CUSTOM',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+        $response->assertJsonPath('analysis.reference_categories.wave', 'WAVE_CUSTOM');
+        $response->assertJsonPath('analysis.reference_categories.supervisor', 'SUP_CUSTOM');
+        $this->assertArrayHasKey('available_references', $response->json('analysis'));
+    }
+
     public function test_permission_enforcement_for_forecast_and_drivers(): void
     {
         // Viewer user has 'forecast.view' but not 'forecast.run'

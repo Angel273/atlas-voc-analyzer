@@ -20,8 +20,9 @@ class DriverAnalysisService
      *
      * @param  string  $metric  'nps', 'csat', or 'professionalism'
      * @param  array{supervisor?: ?string, date_from?: ?string, date_to?: ?string, wave?: ?string}  $filters
+     * @param  array{category?: ?string, supervisor?: ?string, wave?: ?string}  $referenceCategories
      */
-    public function execute(string $metric = 'nps', array $filters = [], ?User $user = null): array
+    public function execute(string $metric = 'nps', array $filters = [], array $referenceCategories = [], ?User $user = null): array
     {
         // 1. Fetch survey-level records with categories
         $query = DB::table('surveys')
@@ -72,9 +73,9 @@ class DriverAnalysisService
 
         // 2. Dispatch to mathematical engine
         if ($metric === 'nps') {
-            $result = $this->npsEngine->analyze($records);
+            $result = $this->npsEngine->analyze($records, $referenceCategories);
         } else {
-            $result = $this->logisticEngine->analyze($records, $metric);
+            $result = $this->logisticEngine->analyze($records, $metric, $referenceCategories);
         }
 
         // 3. Persist record in database
