@@ -48,6 +48,9 @@ RUN npm run build
 # Copy remaining application code
 COPY . .
 
+# Ensure .env exists from .env.example if not provided
+RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi
+
 # Ensure storage & bootstrap/cache permissions
 RUN mkdir -p storage/framework/{sessions,views,cache} storage/app/temp_imports \
     && chmod -R 775 storage bootstrap/cache
