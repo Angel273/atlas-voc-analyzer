@@ -30,26 +30,29 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
 
 WORKDIR /app
 
-# Copy Composer manifests & install dependencies
+# Copy Composer manifests & install dependencies (without scripts since artisan is not copied yet)
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
 
-# Copy NPM manifests & build frontend
+# Copy NPM manifests & install packages
 COPY package.json package-lock.json* vite.config.js tsconfig.json ./
 RUN npm install --legacy-peer-deps --no-audit
 
-COPY resources/ resources/
-COPY public/ public/
-RUN npm run build
-
-# Copy remaining application code
+# Copy application codebase
 COPY . .
 
 # Ensure .env exists from .env.example if not provided
 RUN if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi
+
+# Build frontend assets
+RUN npm run build
+
+# Run composer dump-autoload now that artisan and application code are present
+RUN composer dump-autoload --optimize
 
 # Ensure storage & bootstrap/cache permissions
 RUN mkdir -p storage/framework/{sessions,views,cache} storage/app/temp_imports \
