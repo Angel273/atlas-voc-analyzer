@@ -20,7 +20,7 @@ class CategorizeVerbatimsJob implements ShouldQueue
     /**
      * The number of seconds the job can run before timing out.
      */
-    public int $timeout = 300;
+    public int $timeout = 600;
 
     public function __construct(
         public array $surveyIds = []
@@ -53,6 +53,7 @@ class CategorizeVerbatimsJob implements ShouldQueue
             ->whereNotNull('verbatim')
             ->get();
 
+        $pendingSurveys = [];
         foreach ($surveys as $survey) {
             if (isset($alreadyCompleted[$survey->survey_id])) {
                 continue;
@@ -63,81 +64,241 @@ class CategorizeVerbatimsJob implements ShouldQueue
                 continue;
             }
 
-            // Scrub verbatim for privacy
-            $sanitizedVerbatim = $piiScrubber->scrubText($verbatim, "cat_{$survey->survey_id}");
+            $pendingSurveys[] = $survey;
+        }
 
-            $systemInstruction = 'You are a customer feedback classifier for Voice of Customer analytics. '
-                ."You MUST classify the feedback into EXACTLY ONE of the following allowed categories:\n"
-                .$categoryContext."\n\n"
-                .'Do NOT invent new categories. You must respond in valid JSON with format: '
-                .'{"category": "EXACT_CATEGORY_NAME", "confidence": 0.95}';
+        if (empty($pendingSurveys)) {
+            return;
+        }
 
-            $prompt = "Classify this customer verbatim:\n\"{$sanitizedVerbatim}\"";
+        // Process verbatims in batches of 100 per LLM prompt
+        $batches = array_chunk($pendingSurveys, 100);
 
-            try {
-                $response = $aiProvider->generate([
-                    ['role' => 'user', 'content' => $prompt],
-                ], [], [
-                    'system_instruction' => $systemInstruction,
-                    'prompt_version' => 'cat_v1',
-                ]);
+        foreach ($batches as $batch) {
+            $this->processBatch(
+                $batch,
+                $activeCategories,
+                $categoriesMap,
+                $categoryNames,
+                $categoryContext,
+                $aiProvider,
+                $piiScrubber
+            );
+        }
+    }
 
-                $content = $response['content'] ?? '';
-                $jsonStart = strpos($content, '{');
-                $jsonEnd = strrpos($content, '}');
-                $matchedCategory = null;
-                $confidence = 0.85;
+    /**
+     * Process a batch of up to 100 verbatims in a single AI prompt.
+     */
+    protected function processBatch(
+        array $batch,
+        $activeCategories,
+        $categoriesMap,
+        array $categoryNames,
+        string $categoryContext,
+        AiProvider $aiProvider,
+        PiiScrubberService $piiScrubber
+    ): void {
+        $items = [];
+        $surveysById = [];
 
-                if ($jsonStart !== false && $jsonEnd !== false) {
-                    $parsed = json_decode(substr($content, $jsonStart, $jsonEnd - $jsonStart + 1), true);
-                    if (! empty($parsed['category']) && isset($categoriesMap[$parsed['category']])) {
-                        $matchedCategory = $categoriesMap[$parsed['category']];
-                        $confidence = (float) ($parsed['confidence'] ?? 0.85);
-                    }
-                }
+        foreach ($batch as $survey) {
+            $surveysById[$survey->survey_id] = $survey;
+            $sanitized = $piiScrubber->scrubText(trim((string) $survey->verbatim), "cat_{$survey->survey_id}");
+            $items[] = [
+                'id' => (string) $survey->survey_id,
+                'text' => mb_substr($sanitized, 0, 400),
+            ];
+        }
 
-                // Fallback: match by substring if JSON didn't parse or had slight variation
-                if (! $matchedCategory) {
-                    foreach ($categoryNames as $cName) {
-                        if (stripos($content, $cName) !== false) {
-                            $matchedCategory = $categoriesMap[$cName];
-                            break;
+        $systemInstruction = "You are an expert customer feedback classifier for Voice of Customer analytics.\n"
+            ."You MUST classify each verbatim into EXACTLY ONE of the allowed categories:\n"
+            .$categoryContext."\n\n"
+            ."Rules:\n"
+            ."1. Do NOT invent new categories.\n"
+            ."2. Return ONLY a valid JSON array of objects with keys: \"id\", \"category\", and \"confidence\" (number between 0.0 and 1.0).\n"
+            ."3. Provide an entry for each verbatim in the input.\n"
+            ."Format example:\n"
+            .'[{"id": "ID_HERE", "category": "EXACT_CATEGORY_NAME", "confidence": 0.95}]';
+
+        $prompt = 'Classify these '.count($items)." customer verbatims:\n".json_encode($items, JSON_UNESCAPED_UNICODE);
+
+        try {
+            $response = $aiProvider->generate([
+                ['role' => 'user', 'content' => $prompt],
+            ], [], [
+                'system_instruction' => $systemInstruction,
+                'prompt_version' => 'cat_v2_batch100',
+            ]);
+
+            $content = $response['content'] ?? '';
+            $startPos = strpos($content, '[');
+            $endPos = strrpos($content, ']');
+            $processedIds = [];
+
+            if ($startPos !== false && $endPos !== false) {
+                $jsonString = substr($content, $startPos, $endPos - $startPos + 1);
+                $parsed = json_decode($jsonString, true);
+
+                if (is_array($parsed)) {
+                    foreach ($parsed as $item) {
+                        $sId = (string) ($item['id'] ?? '');
+                        if (! isset($surveysById[$sId])) {
+                            continue;
                         }
+
+                        $catName = $item['category'] ?? '';
+                        $matchedCategory = $categoriesMap[$catName] ?? null;
+
+                        if (! $matchedCategory) {
+                            foreach ($categoryNames as $cName) {
+                                if (stripos($catName, $cName) !== false) {
+                                    $matchedCategory = $categoriesMap[$cName];
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (! $matchedCategory) {
+                            $matchedCategory = $activeCategories->first();
+                        }
+
+                        $confidence = isset($item['confidence']) ? (float) $item['confidence'] : 0.85;
+
+                        VerbatimAnalysis::updateOrCreate(
+                            ['survey_id' => $sId],
+                            [
+                                'category_id' => $matchedCategory->id,
+                                'confidence' => $confidence,
+                                'provider' => $aiProvider->providerName(),
+                                'model' => $response['model'] ?? config('services.gemini.model', env('GEMINI_MODEL', 'gemini-flash-latest')),
+                                'prompt_version' => 'cat_v2_batch100',
+                                'status' => 'completed',
+                                'processed_at' => now(),
+                            ]
+                        );
+
+                        $processedIds[$sId] = true;
                     }
                 }
+            }
 
-                // Default to first category if still unassigned
-                if (! $matchedCategory) {
-                    $matchedCategory = $activeCategories->first();
+            // Fallback for any items missed by the LLM in this batch
+            foreach ($batch as $survey) {
+                if (! isset($processedIds[$survey->survey_id])) {
+                    $this->fallbackSingle(
+                        $survey,
+                        $activeCategories,
+                        $categoriesMap,
+                        $categoryNames,
+                        $categoryContext,
+                        $aiProvider,
+                        $piiScrubber
+                    );
                 }
-
-                VerbatimAnalysis::updateOrCreate(
-                    ['survey_id' => $survey->survey_id],
-                    [
-                        'category_id' => $matchedCategory->id,
-                        'confidence' => $confidence,
-                        'provider' => $aiProvider->providerName(),
-                        'model' => $response['model'] ?? config('services.gemini.model', env('GEMINI_MODEL', 'gemini-flash-latest')),
-                        'prompt_version' => 'cat_v1',
-                        'status' => 'completed',
-                        'processed_at' => now(),
-                    ]
-                );
-            } catch (\Throwable $e) {
-                // Log failure status for this survey
-                VerbatimAnalysis::updateOrCreate(
-                    ['survey_id' => $survey->survey_id],
-                    [
-                        'category_id' => $activeCategories->first()->id,
-                        'confidence' => 0.0,
-                        'provider' => $aiProvider->providerName(),
-                        'model' => 'failed',
-                        'prompt_version' => 'cat_v1',
-                        'status' => 'failed',
-                        'processed_at' => now(),
-                    ]
+            }
+        } catch (\Throwable $e) {
+            // If the whole batch call failed, process each survey individually or record failure
+            foreach ($batch as $survey) {
+                $this->fallbackSingle(
+                    $survey,
+                    $activeCategories,
+                    $categoriesMap,
+                    $categoryNames,
+                    $categoryContext,
+                    $aiProvider,
+                    $piiScrubber
                 );
             }
+        }
+    }
+
+    /**
+     * Fallback for a single survey if batch classification missed it or failed.
+     */
+    protected function fallbackSingle(
+        Survey $survey,
+        $activeCategories,
+        $categoriesMap,
+        array $categoryNames,
+        string $categoryContext,
+        AiProvider $aiProvider,
+        PiiScrubberService $piiScrubber
+    ): void {
+        $verbatim = trim((string) $survey->verbatim);
+        if ($verbatim === '') {
+            return;
+        }
+
+        $sanitizedVerbatim = $piiScrubber->scrubText($verbatim, "cat_{$survey->survey_id}");
+        $systemInstruction = 'You are a customer feedback classifier for Voice of Customer analytics. '
+            ."You MUST classify the feedback into EXACTLY ONE of the following allowed categories:\n"
+            .$categoryContext."\n\n"
+            .'Do NOT invent new categories. You must respond in valid JSON with format: '
+            .'{"category": "EXACT_CATEGORY_NAME", "confidence": 0.95}';
+
+        $prompt = "Classify this customer verbatim:\n\"{$sanitizedVerbatim}\"";
+
+        try {
+            $response = $aiProvider->generate([
+                ['role' => 'user', 'content' => $prompt],
+            ], [], [
+                'system_instruction' => $systemInstruction,
+                'prompt_version' => 'cat_v2_fallback',
+            ]);
+
+            $content = $response['content'] ?? '';
+            $jsonStart = strpos($content, '{');
+            $jsonEnd = strrpos($content, '}');
+            $matchedCategory = null;
+            $confidence = 0.85;
+
+            if ($jsonStart !== false && $jsonEnd !== false) {
+                $parsed = json_decode(substr($content, $jsonStart, $jsonEnd - $jsonStart + 1), true);
+                if (! empty($parsed['category']) && isset($categoriesMap[$parsed['category']])) {
+                    $matchedCategory = $categoriesMap[$parsed['category']];
+                    $confidence = (float) ($parsed['confidence'] ?? 0.85);
+                }
+            }
+
+            if (! $matchedCategory) {
+                foreach ($categoryNames as $cName) {
+                    if (stripos($content, $cName) !== false) {
+                        $matchedCategory = $categoriesMap[$cName];
+                        break;
+                    }
+                }
+            }
+
+            if (! $matchedCategory) {
+                $matchedCategory = $activeCategories->first();
+            }
+
+            VerbatimAnalysis::updateOrCreate(
+                ['survey_id' => $survey->survey_id],
+                [
+                    'category_id' => $matchedCategory->id,
+                    'confidence' => $confidence,
+                    'provider' => $aiProvider->providerName(),
+                    'model' => $response['model'] ?? config('services.gemini.model', env('GEMINI_MODEL', 'gemini-flash-latest')),
+                    'prompt_version' => 'cat_v2_fallback',
+                    'status' => 'completed',
+                    'processed_at' => now(),
+                ]
+            );
+        } catch (\Throwable $e) {
+            VerbatimAnalysis::updateOrCreate(
+                ['survey_id' => $survey->survey_id],
+                [
+                    'category_id' => $activeCategories->first()->id,
+                    'confidence' => 0.0,
+                    'provider' => $aiProvider->providerName(),
+                    'model' => 'failed',
+                    'prompt_version' => 'cat_v2_fallback',
+                    'status' => 'failed',
+                    'processed_at' => now(),
+                ]
+            );
         }
     }
 }

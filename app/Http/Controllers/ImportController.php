@@ -399,7 +399,7 @@ class ImportController extends Controller
             ->toArray();
 
         if (! empty($uncategorized)) {
-            foreach (array_chunk($uncategorized, 50) as $chunk) {
+            foreach (array_chunk($uncategorized, 100) as $chunk) {
                 dispatch(new CategorizeVerbatimsJob($chunk));
             }
         }

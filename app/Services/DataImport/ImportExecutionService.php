@@ -190,9 +190,9 @@ class ImportExecutionService
                 userId: $user?->id
             );
 
-            // Queue AI categorization job in manageable batches of 50 if verbatims exist
+            // Queue AI categorization job in batches of 100 if verbatims exist
             if (! empty($surveysToCategorize)) {
-                foreach (array_chunk($surveysToCategorize, 50) as $chunk) {
+                foreach (array_chunk($surveysToCategorize, 100) as $chunk) {
                     dispatch(new CategorizeVerbatimsJob($chunk));
                 }
             }
