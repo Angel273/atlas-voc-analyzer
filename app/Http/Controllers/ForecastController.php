@@ -197,6 +197,7 @@ class ForecastController extends Controller
                 ."- Distingue SIEMPRE asociación estadística de causalidad operativa. NUNCA utilices frases como 'Facturación causa baja satisfacción'. Usa 'está asociado con', 'muestra una relación', 'efecto estimado'.\n"
                 ."- Si un driver tiene estado 'INSUFFICIENT' o 'LOW' sample, advierte explícitamente que la muestra es pequeña y no debe considerarse un driver confiable.\n"
                 ."- Destaca las asociaciones con soporte muestral ('SUPPORTED').\n"
+                .'- El chat soporta renderizado matemático LaTeX/KaTeX. Puedes usar sintaxis LaTeX `$ ... $` para métricas, valores estadísticos o variables (ej. `$N = 15$`, `$p < 0.01$`, `$R^2$`) y `$$ ... $$` para fórmulas destacadas cuando enriquezca la explicación analítica.'."\n"
                 .'- Estructura en Markdown claro con viñetas concisas y recomendaciones de foco operativo.';
 
             $response = $this->aiProvider->generate([
@@ -274,6 +275,7 @@ class ForecastController extends Controller
             ."- Resuelve las dudas basándote estrictamente en los datos calculados. No alteres ni inventes números.\n"
             ."- Si se discuten drivers o factores asociados, distingue firmemente correlación de causalidad operativa (usa 'asociado con', no 'causa').\n"
             ."- Si se pregunta por la fiabilidad, sé transparente respecto al tamaño muestral y la ventana histórica.\n"
+            .'- El chat soporta renderizado matemático LaTeX/KaTeX. Puedes utilizar notación LaTeX `$ ... $` para variables y métricas estadísticas (ej. `$N = 15$`, `$p < 0.01$`, `$R^2$`) o `$$ ... $$` para fórmulas, ya que la interfaz cuenta con soporte completo de KaTeX.'."\n"
             .'- Puedes sintetizar los resultados del pronóstico con los drivers si ambos están disponibles.';
 
         $messages = [];

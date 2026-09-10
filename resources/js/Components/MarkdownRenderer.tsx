@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 interface Props {
     content: string;
@@ -9,7 +11,8 @@ interface Props {
 export default function MarkdownRenderer({ content }: Props) {
     return (
         <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
             components={{
                 table: ({ children }) => (
                     <div className="overflow-x-auto my-3 border border-[#ccd1ca] bg-white">
@@ -38,22 +41,41 @@ export default function MarkdownRenderer({ content }: Props) {
                     <tr className="hover:bg-[#f7f6f1]/60 transition-colors">{children}</tr>
                 ),
                 h1: ({ children }) => (
-                    <h3 className="font-serif text-lg font-bold text-[#18221d] mt-4 mb-2 first:mt-0">{children}</h3>
+                    <h3 className="font-serif text-lg font-bold text-[#18221d] mt-4 mb-2 first:mt-0 border-b border-[#ccd1ca]/40 pb-1">{children}</h3>
                 ),
                 h2: ({ children }) => (
                     <h4 className="font-serif text-base font-bold text-[#18221d] mt-3.5 mb-2 first:mt-0">{children}</h4>
                 ),
-                h3: ({ children }) => (
-                    <h5 className="font-serif text-sm font-bold text-[#18221d] mt-3 mb-1.5 first:mt-0">{children}</h5>
-                ),
+                h3: ({ children }) => {
+                    const text = String(children);
+                    const isHechos = text.includes('Hechos');
+                    const isCalculos = text.includes('Cálculos');
+                    const isInterp = text.includes('Interpretación');
+
+                    return (
+                        <div className={`mt-4 mb-2 pb-1 border-b flex items-center gap-1.5 ${
+                            isHechos
+                                ? 'border-blue-200 text-blue-900'
+                                : isCalculos
+                                ? 'border-emerald-200 text-emerald-900'
+                                : isInterp
+                                ? 'border-purple-200 text-purple-900'
+                                : 'border-[#ccd1ca] text-[#18221d]'
+                        }`}>
+                            <span className="font-serif text-sm font-bold tracking-tight">
+                                {children}
+                            </span>
+                        </div>
+                    );
+                },
                 p: ({ children }) => (
-                    <p className="my-2 leading-relaxed first:mt-0 last:mb-0">{children}</p>
+                    <p className="my-2 leading-relaxed first:mt-0 last:mb-0 text-[#18221d]">{children}</p>
                 ),
                 ul: ({ children }) => (
-                    <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>
+                    <ul className="list-disc pl-5 my-2 space-y-1 text-[#18221d]">{children}</ul>
                 ),
                 ol: ({ children }) => (
-                    <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>
+                    <ol className="list-decimal pl-5 my-2 space-y-1 text-[#18221d]">{children}</ol>
                 ),
                 li: ({ children }) => (
                     <li className="leading-relaxed">{children}</li>

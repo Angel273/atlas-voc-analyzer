@@ -95,6 +95,70 @@ class DashboardController extends Controller
     }
 
     /**
+     * Persist entire dashboard state: view metadata, global_filters, and widgets (positions & configurations).
+     */
+    public function update(Request $request, Dashboard $dashboard): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:500'],
+            'global_filters' => ['nullable', 'array'],
+            'widgets' => ['nullable', 'array'],
+            'widgets.*.id' => ['required_with:widgets', 'integer'],
+            'widgets.*.title' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'widgets.*.type' => ['sometimes', 'nullable', 'string'],
+            'widgets.*.x' => ['nullable', 'integer'],
+            'widgets.*.y' => ['nullable', 'integer'],
+            'widgets.*.w' => ['nullable', 'integer'],
+            'widgets.*.h' => ['nullable', 'integer'],
+            'widgets.*.sort_order' => ['nullable', 'integer'],
+            'widgets.*.configuration' => ['nullable', 'array'],
+        ]);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($dashboard, $validated) {
+            $dashboardData = [];
+            if (array_key_exists('name', $validated) && $validated['name']) {
+                $dashboardData['name'] = $validated['name'];
+            }
+            if (array_key_exists('description', $validated)) {
+                $dashboardData['description'] = $validated['description'];
+            }
+            if (array_key_exists('global_filters', $validated)) {
+                $dashboardData['global_filters'] = $validated['global_filters'];
+            }
+
+            if (!empty($dashboardData)) {
+                $dashboard->update($dashboardData);
+            }
+
+            if (!empty($validated['widgets'])) {
+                foreach ($validated['widgets'] as $item) {
+                    $widgetUpdate = [];
+                    if (isset($item['title'])) $widgetUpdate['title'] = $item['title'];
+                    if (isset($item['type'])) $widgetUpdate['type'] = $item['type'];
+                    if (isset($item['x'])) $widgetUpdate['x'] = $item['x'];
+                    if (isset($item['y'])) $widgetUpdate['y'] = $item['y'];
+                    if (isset($item['w'])) $widgetUpdate['w'] = $item['w'];
+                    if (isset($item['h'])) $widgetUpdate['h'] = $item['h'];
+                    if (isset($item['sort_order'])) $widgetUpdate['sort_order'] = $item['sort_order'];
+                    if (array_key_exists('configuration', $item)) $widgetUpdate['configuration'] = $item['configuration'];
+
+                    if (!empty($widgetUpdate)) {
+                        DashboardWidget::where('id', $item['id'])
+                            ->where('dashboard_id', $dashboard->id)
+                            ->update($widgetUpdate);
+                    }
+                }
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'dashboard' => $dashboard->fresh(['widgets']),
+        ]);
+    }
+
+    /**
      * Persist updated widget positions and sizes (12-column grid).
      */
     public function updateLayout(Request $request, Dashboard $dashboard): JsonResponse

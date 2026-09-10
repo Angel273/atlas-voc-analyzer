@@ -18,6 +18,7 @@ import {
     FileText,
     AlertCircle,
     Sliders,
+    Search,
 } from 'lucide-react';
 import { Widget, Dashboard, WidgetType } from '@/types/dashboard';
 
@@ -53,13 +54,19 @@ export default function DashboardIndex({
 }: Props) {
     const gridRef = useRef<HTMLDivElement>(null);
 
-    // Filters
-    const [selectedSupervisor, setSelectedSupervisor] = useState<string>('');
-    const [selectedWave, setSelectedWave] = useState<string>('');
-    const [selectedCategory, setSelectedCategory] = useState<string>('');
-    const [dateFrom, setDateFrom] = useState<string>('');
-    const [dateTo, setDateTo] = useState<string>('');
-    const [level, setLevel] = useState<'supervisors' | 'agents'>('supervisors');
+    // Saved global filters from official dashboard record
+    const savedFilters = dashboard.global_filters || {};
+
+    // Filters state
+    const [selectedSupervisor, setSelectedSupervisor] = useState<string>(savedFilters.supervisor || '');
+    const [selectedWave, setSelectedWave] = useState<string>(savedFilters.wave || '');
+    const [selectedCategory, setSelectedCategory] = useState<string>(savedFilters.category || '');
+    const [dateFrom, setDateFrom] = useState<string>(savedFilters.dateFrom || savedFilters.date_from || '');
+    const [dateTo, setDateTo] = useState<string>(savedFilters.dateTo || savedFilters.date_to || '');
+    const [level, setLevel] = useState<'supervisors' | 'agents'>(savedFilters.level || 'supervisors');
+
+    // Local in-table search for quick filtering
+    const [tableSearch, setTableSearch] = useState<string>('');
 
     // Dashboard & Widgets state
     const [widgets, setWidgets] = useState<Widget[]>(dashboard.widgets || []);
@@ -77,11 +84,18 @@ export default function DashboardIndex({
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-    // Synchronize local widgets when dashboard prop changes
+    // Synchronize local widgets and filters when dashboard prop changes
     useEffect(() => {
         setWidgets(dashboard.widgets || []);
+        const sf = dashboard.global_filters || {};
+        setSelectedSupervisor(sf.supervisor || '');
+        setSelectedWave(sf.wave || '');
+        setSelectedCategory(sf.category || '');
+        setDateFrom(sf.dateFrom || sf.date_from || '');
+        setDateTo(sf.dateTo || sf.date_to || '');
+        setLevel(sf.level || 'supervisors');
         setIsLocalDirty(false);
-    }, [dashboard.id]);
+    }, [dashboard.id, JSON.stringify(dashboard.global_filters), dashboard.widgets]);
 
     // Fetch data for a specific widget via Query DSL
     const fetchWidgetData = async (widget: Widget) => {
@@ -159,7 +173,6 @@ export default function DashboardIndex({
                 group_by: [level === 'supervisors' ? 'supervisor' : 'agent'],
                 filters,
                 date_range: dateRange,
-                limit: 20,
             };
         }
 
@@ -192,6 +205,7 @@ export default function DashboardIndex({
         setSelectedCategory('');
         setDateFrom('');
         setDateTo('');
+        setIsLocalDirty(true);
     };
 
     // 1. Resize Handler for GridWidget (Width & Height)
@@ -227,12 +241,7 @@ export default function DashboardIndex({
         const [movedItem] = reordered.splice(draggedIndex, 1);
         reordered.splice(dropIndex, 0, movedItem);
 
-        const updatedWithSortOrder = reordered.map((w, idx) => ({
-            ...w,
-            sort_order: idx + 1,
-        }));
-
-        setWidgets(updatedWithSortOrder);
+        setWidgets(reordered);
         setIsLocalDirty(true);
         setDraggedIndex(null);
         setDragOverIndex(null);
@@ -251,62 +260,69 @@ export default function DashboardIndex({
     // 4. Reset to Official (Revert Ephemeral Local Changes)
     const handleResetToOfficial = () => {
         setWidgets([...dashboard.widgets]);
+        const sf = dashboard.global_filters || {};
+        setSelectedSupervisor(sf.supervisor || '');
+        setSelectedWave(sf.wave || '');
+        setSelectedCategory(sf.category || '');
+        setDateFrom(sf.date_from || sf.dateFrom || '');
+        setDateTo(sf.date_to || sf.dateTo || '');
+        setLevel(sf.level || 'supervisors');
         setIsLocalDirty(false);
     };
 
-    // 5. Persist All Changes to Backend
+    // 5. Persist All Changes to Backend (Atomic Dashboard State & View Filters)
     const handleSaveChanges = async () => {
         setIsSaving(true);
         const csrfToken = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
 
         try {
-            // A. Update Layout (positions, sizes, sort order)
-            await fetch(`/dashboard/${dashboard.id}/layout`, {
+            const payload = {
+                global_filters: {
+                    level,
+                    supervisor: selectedSupervisor || null,
+                    wave: selectedWave || null,
+                    category: selectedCategory || null,
+                    date_from: dateFrom || null,
+                    date_to: dateTo || null,
+                },
+                widgets: widgets.map((w, idx) => ({
+                    id: w.id,
+                    title: w.title,
+                    type: w.type,
+                    x: w.x,
+                    y: w.y,
+                    w: w.w,
+                    h: w.h,
+                    sort_order: idx + 1,
+                    configuration: w.configuration,
+                })),
+            };
+
+            const res = await fetch(`/dashboard/${dashboard.id}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
                 },
-                body: JSON.stringify({
-                    widgets: widgets.map((w, idx) => ({
-                        id: w.id,
-                        x: w.x,
-                        y: w.y,
-                        w: w.w,
-                        h: w.h,
-                        sort_order: idx + 1,
-                    })),
-                }),
+                body: JSON.stringify(payload),
             });
 
-            // B. Update Individual Widget Configurations if changed
-            for (const w of widgets) {
-                const original = dashboard.widgets.find((orig) => orig.id === w.id);
-                const hasConfigChanged =
-                    !original ||
-                    original.title !== w.title ||
-                    original.type !== w.type ||
-                    original.w !== w.w ||
-                    original.h !== w.h ||
-                    JSON.stringify(original.configuration) !== JSON.stringify(w.configuration);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.message || 'Error al guardar cambios');
+            }
 
-                if (hasConfigChanged) {
-                    await fetch(`/dashboard/${dashboard.id}/widgets/${w.id}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken,
-                        },
-                        body: JSON.stringify({
-                            title: w.title,
-                            type: w.type,
-                            w: w.w,
-                            h: w.h,
-                            configuration: w.configuration,
-                            sort_order: w.sort_order,
-                        }),
-                    });
-                }
+            const data = await res.json();
+            if (data.dashboard) {
+                setWidgets(data.dashboard.widgets || []);
+                const sf = data.dashboard.global_filters || {};
+                setSelectedSupervisor(sf.supervisor || '');
+                setSelectedWave(sf.wave || '');
+                setSelectedCategory(sf.category || '');
+                setDateFrom(sf.date_from || sf.dateFrom || '');
+                setDateTo(sf.date_to || sf.dateTo || '');
+                setLevel(sf.level || 'supervisors');
             }
 
             setIsLocalDirty(false);
@@ -428,17 +444,20 @@ export default function DashboardIndex({
                     )}
 
                     {/* Persist / Save Changes Button */}
-                    {isLocalDirty && (
-                        <button
-                            type="button"
-                            disabled={isSaving}
-                            onClick={handleSaveChanges}
-                            className="px-3.5 py-2 text-xs font-semibold uppercase tracking-wider bg-[#d7f45b] text-[#18221d] border border-[#18221d] flex items-center gap-1.5 hover:bg-[#cbf03f] transition-colors shadow-sm"
-                        >
-                            <Save className="w-3.5 h-3.5" />
-                            <span>{isSaving ? 'Guardando...' : 'Guardar Cambios'}</span>
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={handleSaveChanges}
+                        className={`px-3.5 py-2 text-xs font-semibold uppercase tracking-wider border flex items-center gap-1.5 transition-colors shadow-sm ${
+                            isLocalDirty
+                                ? 'bg-[#d7f45b] text-[#18221d] border-[#18221d] hover:bg-[#cbf03f] ring-2 ring-[#d7f45b]/50'
+                                : 'bg-white text-[#18221d] border-[#ccd1ca] hover:bg-[#f7f6f1]'
+                        }`}
+                        title="Guardar vista actual del dashboard (filtros, nivel y widgets)"
+                    >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>{isSaving ? 'Guardando...' : isLocalDirty ? 'Guardar Cambios *' : 'Guardar Vista'}</span>
+                    </button>
 
                     {/* Edit Layout Mode Toggle */}
                     <button
@@ -476,7 +495,7 @@ export default function DashboardIndex({
                     <div className="flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-[#7a6418]" />
                         <span>
-                            <strong>Modo Visualización Efímero:</strong> Tienes cambios locales no guardados en la cuadrícula o configuración.
+                            <strong>Modo Visualización Efímero:</strong> Tienes cambios locales no guardados en la cuadrícula o filtros de vista.
                         </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -504,7 +523,10 @@ export default function DashboardIndex({
                     <div className="inline-flex border border-[#ccd1ca] p-0.5 bg-[#f7f6f1]">
                         <button
                             type="button"
-                            onClick={() => setLevel('supervisors')}
+                            onClick={() => {
+                                setLevel('supervisors');
+                                setIsLocalDirty(true);
+                            }}
                             className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                                 level === 'supervisors'
                                     ? 'bg-[#18221d] text-white font-semibold'
@@ -515,7 +537,10 @@ export default function DashboardIndex({
                         </button>
                         <button
                             type="button"
-                            onClick={() => setLevel('agents')}
+                            onClick={() => {
+                                setLevel('agents');
+                                setIsLocalDirty(true);
+                            }}
                             className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                                 level === 'agents'
                                     ? 'bg-[#18221d] text-white font-semibold'
@@ -529,7 +554,10 @@ export default function DashboardIndex({
                     {/* Supervisor Dropdown */}
                     <select
                         value={selectedSupervisor}
-                        onChange={(e) => setSelectedSupervisor(e.target.value)}
+                        onChange={(e) => {
+                            setSelectedSupervisor(e.target.value);
+                            setIsLocalDirty(true);
+                        }}
                         className="text-xs bg-white border border-[#ccd1ca] px-3 py-2 text-[#18221d] focus:outline-none focus:border-[#18221d]"
                     >
                         <option value="">Todos los supervisores</option>
@@ -543,7 +571,10 @@ export default function DashboardIndex({
                     {/* Wave Dropdown */}
                     <select
                         value={selectedWave}
-                        onChange={(e) => setSelectedWave(e.target.value)}
+                        onChange={(e) => {
+                            setSelectedWave(e.target.value);
+                            setIsLocalDirty(true);
+                        }}
                         className="text-xs bg-white border border-[#ccd1ca] px-3 py-2 text-[#18221d] focus:outline-none focus:border-[#18221d]"
                     >
                         <option value="">Todas las olas (Wave)</option>
@@ -557,7 +588,10 @@ export default function DashboardIndex({
                     {/* Category Dropdown */}
                     <select
                         value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        onChange={(e) => {
+                            setSelectedCategory(e.target.value);
+                            setIsLocalDirty(true);
+                        }}
                         className="text-xs bg-white border border-[#ccd1ca] px-3 py-2 text-[#18221d] focus:outline-none focus:border-[#18221d]"
                     >
                         <option value="">Todas las categorías</option>
@@ -573,7 +607,10 @@ export default function DashboardIndex({
                         <input
                             type="date"
                             value={dateFrom}
-                            onChange={(e) => setDateFrom(e.target.value)}
+                            onChange={(e) => {
+                                setDateFrom(e.target.value);
+                                setIsLocalDirty(true);
+                            }}
                             placeholder="From"
                             className="bg-white border border-[#ccd1ca] px-2.5 py-1.5 text-[#18221d] focus:outline-none"
                         />
@@ -581,7 +618,10 @@ export default function DashboardIndex({
                         <input
                             type="date"
                             value={dateTo}
-                            onChange={(e) => setDateTo(e.target.value)}
+                            onChange={(e) => {
+                                setDateTo(e.target.value);
+                                setIsLocalDirty(true);
+                            }}
                             placeholder="To"
                             className="bg-white border border-[#ccd1ca] px-2.5 py-1.5 text-[#18221d] focus:outline-none"
                         />
@@ -1023,20 +1063,30 @@ export default function DashboardIndex({
                     // 5. Detailed Table Widget with Computed Column & Conditional Formatting
                     if (widget.type === 'table') {
                         const dimKey = level === 'supervisors' ? 'supervisor' : 'agent';
-                        const totalReceived = data.reduce((acc: number, r: any) => acc + (r.survey_volume || r.sample_count || 0), 0);
+
+                        const filteredData = tableSearch.trim()
+                            ? data.filter((row: any) => {
+                                  const term = tableSearch.toLowerCase().trim();
+                                  const nameMatch = row.agent_name && String(row.agent_name).toLowerCase().includes(term);
+                                  const keyMatch = row[dimKey] && String(row[dimKey]).toLowerCase().includes(term);
+                                  return nameMatch || keyMatch;
+                              })
+                            : data;
+
+                        const totalReceived = filteredData.reduce((acc: number, r: any) => acc + (r.survey_volume || r.sample_count || 0), 0);
                         const weightedNps =
                             totalReceived > 0
-                                ? data.reduce((acc: number, r: any) => acc + (r.nps ?? 0) * (r.survey_volume || r.sample_count || 0), 0) /
+                                ? filteredData.reduce((acc: number, r: any) => acc + (r.nps ?? 0) * (r.survey_volume || r.sample_count || 0), 0) /
                                   totalReceived
                                 : 0;
                         const weightedCsat =
                             totalReceived > 0
-                                ? data.reduce((acc: number, r: any) => acc + (r.csat ?? 0) * (r.survey_volume || r.sample_count || 0), 0) /
+                                ? filteredData.reduce((acc: number, r: any) => acc + (r.csat ?? 0) * (r.survey_volume || r.sample_count || 0), 0) /
                                   totalReceived
                                 : 0;
                         const weightedProf =
                             totalReceived > 0
-                                ? data.reduce(
+                                ? filteredData.reduce(
                                       (acc: number, r: any) => acc + (r.professionalism ?? 0) * (r.survey_volume || r.sample_count || 0),
                                       0
                                   ) / totalReceived
@@ -1124,7 +1174,11 @@ export default function DashboardIndex({
                             <GridWidget
                                 key={widget.id}
                                 title={widget.title}
-                                subtitle={`Resumen métrico detallado (${data.length} registros)`}
+                                subtitle={
+                                    level === 'agents'
+                                        ? `100% del equipo (${data.length} agentes)`
+                                        : `Supervisores (${data.length} registros)`
+                                }
                                 colSpan={widget.w}
                                 rowSpan={widget.h || 6}
                                 isEditing={isEditing}
@@ -1137,9 +1191,25 @@ export default function DashboardIndex({
                                 onDrop={() => handleDrop(index)}
                                 className={dragOverIndex === index ? 'ring-2 ring-[#d7f45b]' : ''}
                             >
-                                <div className="overflow-x-auto -mx-5 -my-5">
+                                <div className="pb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[#ccd1ca]/60">
+                                    <div className="relative flex-1 min-w-[200px] max-w-sm">
+                                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#687169]" />
+                                        <input
+                                            type="text"
+                                            value={tableSearch}
+                                            onChange={(e) => setTableSearch(e.target.value)}
+                                            placeholder={level === 'agents' ? 'Buscar por agente o código BMS...' : 'Buscar por supervisor...'}
+                                            className="w-full text-xs pl-8 pr-3 py-1.5 border border-[#ccd1ca] bg-[#f7f6f1]/40 text-[#18221d] placeholder-[#687169] focus:outline-none focus:border-[#18221d] focus:bg-white transition-colors"
+                                        />
+                                    </div>
+                                    <div className="text-[11px] text-[#687169] font-mono">
+                                        Mostrando <strong className="text-[#18221d] font-bold">{filteredData.length}</strong> de {data.length} ({level === 'agents' ? '100% de agentes' : '100% de supervisores'})
+                                    </div>
+                                </div>
+
+                                <div className="overflow-x-auto overflow-y-auto max-h-[500px] -mx-5 -mb-5">
                                     <table className="w-full text-left text-xs border-collapse">
-                                        <thead>
+                                        <thead className="sticky top-0 z-10 bg-[#0b4d68]">
                                             <tr className="bg-[#0b4d68] text-white border-b border-[#083b50]">
                                                 <th className="py-3 px-5 font-semibold uppercase tracking-wider">
                                                     {level === 'supervisors' ? 'Supervisor' : 'Agente'}
@@ -1164,22 +1234,26 @@ export default function DashboardIndex({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[#ccd1ca]/60">
-                                            {data.length === 0 ? (
+                                            {filteredData.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={comp.enabled ? 6 : 5} className="py-6 text-center text-[#687169]">
+                                                    <td colSpan={comp.enabled ? 6 : 5} className="py-8 text-center text-[#687169]">
                                                         No hay registros que coincidan con la búsqueda.
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                data.map((row: any, idx: number) => (
+                                                filteredData.map((row: any, idx: number) => (
                                                     <tr key={idx} className="hover:bg-[#f7f6f1]/50 transition-colors">
                                                         <td className="py-2.5 px-5 font-medium text-[#18221d]">
-                                                            {level === 'agents' && row.agent_name ? (
+                                                            {level === 'agents' && (row.agent_name || row.agent || row[dimKey]) ? (
                                                                 <div>
-                                                                    <span className="font-semibold text-[#18221d]">{row.agent_name}</span>
-                                                                    <span className="block text-[10px] text-[#687169] font-mono">
-                                                                        {row[dimKey]}
+                                                                    <span className="font-semibold text-[#18221d]">
+                                                                        {row.agent_name || row.agent || row[dimKey]}
                                                                     </span>
+                                                                    {row[dimKey] && row[dimKey] !== row.agent_name && (
+                                                                        <span className="block text-[10px] text-[#687169] font-mono">
+                                                                            {row[dimKey]}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             ) : (
                                                                 row[dimKey] || '—'
@@ -1206,8 +1280,8 @@ export default function DashboardIndex({
                                                 ))
                                             )}
                                         </tbody>
-                                        {data.length > 0 && (
-                                            <tfoot className="border-t-2 border-[#18221d] font-bold bg-[#f7f6f1]">
+                                        {filteredData.length > 0 && (
+                                            <tfoot className="sticky bottom-0 z-10 border-t-2 border-[#18221d] font-bold bg-[#f7f6f1] shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
                                                 <tr>
                                                     <td className="py-3 px-5 text-[#18221d] font-serif text-sm">
                                                         Grand Total

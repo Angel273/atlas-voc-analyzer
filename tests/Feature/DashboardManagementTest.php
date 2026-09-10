@@ -254,4 +254,92 @@ class DashboardManagementTest extends TestCase
             'id' => $widget->id,
         ]);
     }
+
+    public function test_user_can_update_dashboard_view_state_and_global_filters(): void
+    {
+        $widget = $this->dashboard->widgets()->create([
+            'title' => 'Initial Widget',
+            'type' => 'table',
+            'w' => 12,
+            'h' => 6,
+            'x' => 0,
+            'y' => 0,
+            'configuration' => [],
+        ]);
+
+        $response = $this->actingAs($this->user)->putJson(
+            "/dashboard/{$this->dashboard->id}",
+            [
+                'global_filters' => [
+                    'level' => 'agents',
+                    'supervisor' => 'SUP_ALFA',
+                    'wave' => 'W1',
+                ],
+                'widgets' => [
+                    [
+                        'id' => $widget->id,
+                        'title' => 'Updated Widget Title',
+                        'type' => 'table',
+                        'w' => 12,
+                        'h' => 8,
+                        'x' => 0,
+                        'y' => 0,
+                        'sort_order' => 1,
+                        'configuration' => ['computedColumn' => ['enabled' => true]],
+                    ],
+                ],
+            ]
+        );
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $this->dashboard->refresh();
+        $this->assertEquals('agents', $this->dashboard->global_filters['level']);
+        $this->assertEquals('SUP_ALFA', $this->dashboard->global_filters['supervisor']);
+
+        $widget->refresh();
+        $this->assertEquals('Updated Widget Title', $widget->title);
+        $this->assertEquals(8, $widget->h);
+        $this->assertTrue($widget->configuration['computedColumn']['enabled']);
+    }
+
+    public function test_query_table_returns_all_agents_without_limit(): void
+    {
+        $import = \App\Models\Import::create([
+            'original_filename' => 'surveys.xlsx',
+            'file_hash' => 'hash_surveys_2',
+            'sheet_name' => 'Sheet1',
+            'header_row' => 1,
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        // Create 25 distinct agents
+        for ($i = 1; $i <= 25; $i++) {
+            Survey::create([
+                'survey_id' => "SRV_{$i}",
+                'nps_score' => 1.0,
+                'csat_score' => 1.0,
+                'professionalism_score' => 1.0,
+                'agent_bms' => "BMS_{$i}",
+                'agent_name' => "Agent Name {$i}",
+                'supervisor' => 'SUP_1',
+                'survey_date' => '2026-09-01',
+                'record_hash' => "hash_{$i}",
+                'import_id' => $import->id,
+            ]);
+        }
+
+        $response = $this->actingAs($this->user)->postJson('/dashboard/query', [
+            'metrics' => ['nps', 'csat', 'professionalism', 'survey_volume'],
+            'group_by' => ['agent'],
+        ]);
+
+        $response->assertOk();
+        $data = $response->json('data');
+        // Must return all 25 agents without being capped at 20
+        $this->assertCount(25, $data);
+        $this->assertNotNull($data[0]['agent_name'] ?? null);
+    }
 }

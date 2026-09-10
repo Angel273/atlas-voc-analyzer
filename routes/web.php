@@ -50,6 +50,7 @@ Route::middleware('auth')->group(function () {
     // 1. Dashboard Domain
     Route::middleware('permission:dashboard.view')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::put('/dashboard/{dashboard}', [DashboardController::class, 'update'])->name('dashboard.update');
         Route::post('/dashboard/query', [DashboardController::class, 'queryWidget'])->name('dashboard.query');
         Route::put('/dashboard/{dashboard}/layout', [DashboardController::class, 'updateLayout'])->name('dashboard.layout');
         Route::post('/dashboard/{dashboard}/widgets', [DashboardController::class, 'storeWidget'])->name('dashboard.widgets.store');
