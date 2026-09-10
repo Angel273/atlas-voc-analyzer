@@ -1,14 +1,23 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import katex from 'katex';
 
 interface Props {
     content: string;
 }
 
+function sanitizeMarkdownMath(raw: string): string {
+    if (!raw) return '';
+    // Strip accidental code backticks around LaTeX math expressions, e.g. `$N = 4393$` -> $N = 4393$
+    return raw.replace(/`(\${1,2}[^`\n]+?\${1,2})`/g, '$1');
+}
+
 export default function MarkdownRenderer({ content }: Props) {
+    const sanitizedContent = useMemo(() => sanitizeMarkdownMath(content), [content]);
+
     return (
         <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
@@ -86,6 +95,21 @@ export default function MarkdownRenderer({ content }: Props) {
                     </blockquote>
                 ),
                 code: ({ className, children }: any) => {
+                    const text = typeof children === 'string' ? children.trim() : '';
+                    // Fallback: If somehow an inline code span still contains $...$ or $$...$$, render it via KaTeX
+                    const mathMatch = /^\${1,2}(.+)\${1,2}$/.exec(text);
+                    if (mathMatch && mathMatch[1]) {
+                        try {
+                            const html = katex.renderToString(mathMatch[1].trim(), {
+                                throwOnError: false,
+                                displayMode: text.startsWith('$$'),
+                            });
+                            return <span className="inline-block mx-0.5" dangerouslySetInnerHTML={{ __html: html }} />;
+                        } catch {
+                            // fallback to standard inline code
+                        }
+                    }
+
                     const match = /language-(\w+)/.exec(className || '');
                     const isInline = !match && !String(children).includes('\n');
                     return isInline ? (
@@ -102,7 +126,7 @@ export default function MarkdownRenderer({ content }: Props) {
                 strong: ({ children }) => <strong className="font-bold text-[#18221d]">{children}</strong>,
             }}
         >
-            {content}
+            {sanitizedContent}
         </ReactMarkdown>
     );
 }

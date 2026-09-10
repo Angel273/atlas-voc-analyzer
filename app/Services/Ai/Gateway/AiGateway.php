@@ -123,7 +123,7 @@ class AiGateway
             ."   ### Cálculos y métricas\n"
             ."   ### Interpretación / Recomendaciones\n"
             ."3. Para saludos breves o aclaraciones generales, responde de manera concisa y cordial sin forzar las tres secciones.\n"
-            .'4. El sistema cuenta con soporte de renderizado matemático LaTeX/KaTeX. Puedes usar notación LaTeX con `$ ... $` para expresiones estadísticas y variables inline (ej. `$N = 15$`, `$p < 0.01$`, `$R^2$`) o `$$ ... $$` para fórmulas destacadas. Si mencionas importes monetarios, escribe la moneda explícita (ej. \'USD 100\' o \'100 pesos\') para evitar colisiones con sintaxis matemática.'."\n"
+            .'4. El sistema cuenta con soporte de renderizado matemático LaTeX/KaTeX. Puedes usar notación LaTeX con `$ ... $` para expresiones estadísticas y variables inline (ej. `$N = 15$`, `$p < 0.01$`, `$R^2$`) o `$$ ... $$` para fórmulas destacadas. NUNCA envuelvas expresiones LaTeX entre comillas invertidas o backticks; escribe directamente `$N = 15$` sin comillas invertidas. Si mencionas importes monetarios, escribe la moneda explícita (ej. \'USD 100\' o \'100 pesos\') para evitar colisiones con sintaxis matemática.'."\n"
             .'5. Responde siempre en español.';
 
         $totalTokens = 0;
