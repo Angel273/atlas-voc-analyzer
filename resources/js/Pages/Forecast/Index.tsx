@@ -1277,7 +1277,7 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
                 </div>
 
                 {/* Chat Messages Area */}
-                <div className="p-6 space-y-5 max-h-[520px] overflow-y-auto bg-[#fafaf8]">
+                <div className="p-6 sm:p-7 space-y-6 max-h-[560px] overflow-y-auto bg-[#fafaf8]">
                     {chatMessages.map((msg) => {
                         const isUser = msg.role === 'user';
                         return (
@@ -1285,25 +1285,25 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
                                 key={msg.id}
                                 className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                             >
-                                <div className="flex items-center space-x-1.5 mb-1 text-[11px] text-[#687169]">
+                                <div className="flex items-center space-x-1.5 mb-1.5 text-xs text-[#687169]">
                                     {isUser ? (
                                         <>
-                                            <UserIcon className="w-3 h-3 text-[#687169]" />
-                                            <span className="font-bold">Usted</span>
+                                            <UserIcon className="w-3.5 h-3.5 text-[#687169]" />
+                                            <span className="font-bold text-xs sm:text-sm text-[#18221d]">Usted</span>
                                         </>
                                     ) : (
                                         <>
-                                            <Bot className="w-3.5 h-3.5 text-[#2e5e33]" />
-                                            <span className="font-bold text-[#2e5e33]">Atlas Assistant (Gemini)</span>
+                                            <Bot className="w-4 h-4 text-[#2e5e33]" />
+                                            <span className="font-bold text-xs sm:text-sm text-[#2e5e33]">Atlas Assistant (Gemini)</span>
                                         </>
                                     )}
                                 </div>
 
                                 <div
-                                    className={`p-4 text-xs leading-relaxed border ${
+                                    className={`border shadow-xs ${
                                         isUser
-                                            ? 'bg-[#f7f6f1] border-[#ccd1ca] text-[#18221d] max-w-[85%] whitespace-pre-wrap'
-                                            : 'bg-white border-[#ccd1ca] text-[#18221d] shadow-xs max-w-[95%] md:max-w-[92%]'
+                                            ? 'p-4 sm:px-5 sm:py-3.5 bg-[#f7f6f1] border-[#ccd1ca] text-[#18221d] text-[15px] sm:text-base leading-[1.7] max-w-[85%] whitespace-pre-wrap font-sans'
+                                            : 'p-5 sm:p-7 bg-white border-[#ccd1ca] text-[#18221d] max-w-[95%] md:max-w-[92%]'
                                     }`}
                                 >
                                     {isUser ? (
@@ -1318,12 +1318,12 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
 
                     {chatLoading && (
                         <div className="flex flex-col items-start">
-                            <div className="flex items-center space-x-1.5 mb-1 text-[11px] text-[#2e5e33]">
-                                <Bot className="w-3.5 h-3.5" />
+                            <div className="flex items-center space-x-1.5 mb-1 text-xs text-[#2e5e33]">
+                                <Bot className="w-4 h-4" />
                                 <span className="font-bold">Atlas Assistant (Gemini)</span>
                             </div>
-                            <div className="p-3 bg-white border border-[#ccd1ca] text-xs text-[#687169] flex items-center space-x-2">
-                                <div className="w-2 h-2 rounded-full bg-[#2e5e33] animate-ping" />
+                            <div className="p-4 bg-white border border-[#ccd1ca] text-sm text-[#687169] flex items-center space-x-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-[#2e5e33] animate-ping" />
                                 <span>Analizando factores matemáticos y preparando respuesta...</span>
                             </div>
                         </div>
@@ -1333,8 +1333,8 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
                 </div>
 
                 {/* Suggested Prompts Pills */}
-                <div className="px-6 py-2.5 bg-white border-t border-[#ccd1ca]/60 flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#687169] mr-1">
+                <div className="px-6 py-3 bg-white border-t border-[#ccd1ca]/60 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#687169] mr-1">
                         Preguntas Sugeridas:
                     </span>
                     {(activeTab === 'forecast' ? FORECAST_PROMPTS : DRIVER_PROMPTS).map((prompt, i) => (
@@ -1342,7 +1342,7 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
                             key={i}
                             onClick={() => handleSendChatMessage(prompt)}
                             disabled={chatLoading}
-                            className="text-[11px] px-2.5 py-1 bg-[#f7f6f1] hover:bg-[#dce4d8] border border-[#ccd1ca] text-[#18221d] transition-colors disabled:opacity-50"
+                            className="text-xs px-3 py-1.5 bg-[#f7f6f1] hover:bg-[#dce4d8] border border-[#ccd1ca] text-[#18221d] transition-colors disabled:opacity-50"
                         >
                             &rarr; {prompt}
                         </button>
@@ -1368,14 +1368,14 @@ export default function ForecastIndex({ forecasts, supervisors, waves = [], cate
                                     : 'Pregunta a Gemini sobre las asociaciones de drivers y recomendaciones operativas...'
                             }
                             disabled={chatLoading}
-                            className="flex-1 px-4 py-2.5 bg-white border border-[#ccd1ca] text-xs text-[#18221d] focus:outline-none focus:border-[#18221d]"
+                            className="flex-1 px-4 py-3 bg-white border border-[#ccd1ca] text-sm sm:text-[15px] text-[#18221d] focus:outline-none focus:border-[#18221d]"
                         />
                         <button
                             type="submit"
                             disabled={chatLoading || !chatInput.trim()}
-                            className="px-5 py-2.5 bg-[#18221d] text-white text-xs font-semibold uppercase tracking-wider hover:bg-black transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                            className="px-6 py-3 bg-[#18221d] text-white text-xs sm:text-sm font-semibold uppercase tracking-wider hover:bg-black transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
-                            <Send className="w-3.5 h-3.5" />
+                            <Send className="w-4 h-4" />
                             <span>{chatLoading ? 'Consultando...' : 'Preguntar'}</span>
                         </button>
                     </form>

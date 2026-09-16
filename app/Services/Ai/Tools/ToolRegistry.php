@@ -4,6 +4,7 @@ namespace App\Services\Ai\Tools;
 
 use App\Models\Category;
 use App\Models\DslTool;
+use App\Models\KpiGoal;
 use App\Models\Survey;
 use App\Models\User;
 use App\Services\DriverAnalysis\DriverAnalysisService;
@@ -11,6 +12,8 @@ use App\Services\Forecasting\ForecastEngine;
 use App\Services\Metrics\Dsl\QueryEngine;
 use App\Services\Metrics\Registry\MetricRegistry;
 use App\Services\Privacy\DataMinimizerService;
+use App\Services\Privacy\EntityFuzzyMatcher;
+use App\Services\Privacy\PiiScrubberService;
 use App\Services\Privacy\PseudonymService;
 
 class ToolRegistry
@@ -21,9 +24,23 @@ class ToolRegistry
         protected PseudonymService $pseudonymService,
         protected DataMinimizerService $dataMinimizer,
         protected ForecastEngine $forecastEngine,
-        protected ?DriverAnalysisService $driverAnalysisService = null
+        protected ?DriverAnalysisService $driverAnalysisService = null,
+        protected ?PiiScrubberService $piiScrubberService = null,
+        protected ?EntityFuzzyMatcher $entityMatcher = null
     ) {
         $this->driverAnalysisService = $driverAnalysisService ?? app(DriverAnalysisService::class);
+        $this->piiScrubberService = $piiScrubberService ?? app(PiiScrubberService::class);
+        $this->entityMatcher = $entityMatcher ?? app(EntityFuzzyMatcher::class);
+    }
+
+    public function resolveSupervisor(string $value, string $scopeId): string
+    {
+        return $this->entityMatcher->resolveSupervisor($value, $scopeId, $this->pseudonymService);
+    }
+
+    public function resolveAgent(string $value, string $scopeId): string
+    {
+        return $this->entityMatcher->resolveAgent($value, $scopeId, $this->pseudonymService);
     }
 
     /**
@@ -153,13 +170,13 @@ class ToolRegistry
             ],
             [
                 'name' => 'get_dimension_values',
-                'description' => 'Get the list of active categories or waves present in the dataset.',
+                'description' => 'Get the list of active categories, waves, supervisors, or agents present in the dataset.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
                         'dimension' => [
                             'type' => 'string',
-                            'enum' => ['category', 'wave'],
+                            'enum' => ['category', 'wave', 'supervisor', 'agent'],
                         ],
                     ],
                     'required' => ['dimension'],
@@ -213,6 +230,76 @@ class ToolRegistry
                         'wave' => ['type' => 'string', 'description' => 'Optional wave filter'],
                     ],
                     'required' => ['metric'],
+                ],
+            ],
+            [
+                'name' => 'query_raw_data',
+                'description' => 'Query individual raw survey records and customer verbatims with flexible filters (supervisor, agent, category, wave, scores, date range, verbatim keyword search). Returns sanitized JSON records with verbatim customer text, metrics, and metadata for deep qualitative and quantitative analysis.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'filters' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'field' => ['type' => 'string', 'description' => 'Field name (supervisor, agent, category, wave, tenure_days, nps_score, csat_score, professionalism_score, survey_date)'],
+                                    'operator' => ['type' => 'string', 'enum' => ['=', '!=', '>', '<', '>=', '<=', 'in', 'between', 'like']],
+                                    'value' => ['description' => 'Scalar value or array of values for in/between operators'],
+                                ],
+                                'required' => ['field', 'operator', 'value'],
+                            ],
+                            'description' => 'Optional array of filters to narrow down the raw dataset.',
+                        ],
+                        'keyword' => [
+                            'type' => 'string',
+                            'description' => 'Optional search term to filter surveys containing specific text or keywords in their verbatim feedback.',
+                        ],
+                        'category' => [
+                            'type' => 'string',
+                            'description' => 'Optional category name filter (e.g. Customer Service, Billing & Payments, etc.).',
+                        ],
+                        'supervisor' => [
+                            'type' => 'string',
+                            'description' => 'Optional supervisor pseudonym token (e.g. SUP_...) or name.',
+                        ],
+                        'include_all' => [
+                            'type' => 'boolean',
+                            'description' => 'If true, retrieves all matching raw records uploaded to the system without truncation.',
+                        ],
+                        'limit' => [
+                            'type' => 'integer',
+                            'description' => 'Maximum number of raw records to retrieve (default 200, up to all records in dataset).',
+                        ],
+                        'offset' => [
+                            'type' => 'integer',
+                            'description' => 'Offset for pagination.',
+                        ],
+                        'sort_by' => [
+                            'type' => 'string',
+                            'enum' => ['survey_date', 'nps_score', 'csat_score', 'professionalism_score', 'tenure_days'],
+                            'description' => 'Field to sort raw records by.',
+                        ],
+                        'sort_direction' => [
+                            'type' => 'string',
+                            'enum' => ['asc', 'desc'],
+                            'description' => 'Sort direction (asc or desc).',
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'get_kpi_goals',
+                'description' => 'Retrieve active operational KPI targets and warning thresholds for VOC metrics (NPS, CSAT, Professionalism). Use this tool to verify current benchmarks and compare operational performance.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'metric' => [
+                            'type' => 'string',
+                            'enum' => ['all', 'nps', 'csat', 'professionalism'],
+                            'description' => 'Specific metric to inspect, or "all" to retrieve all active goals',
+                        ],
+                    ],
                 ],
             ],
         ];
@@ -313,6 +400,17 @@ class ToolRegistry
                 ];
                 break;
 
+            case 'query_raw_data':
+                $returned = $result['returned_count'] ?? count($result['records'] ?? []);
+                $total = $result['total_matching_records'] ?? $returned;
+                $citations[] = [
+                    'title' => "Extracción RAW de datos: {$returned} encuestas y verbatims analizados (de {$total} coincidentes)",
+                    'factType' => 'fact',
+                    'resourceId' => 'raw_surveys_dataset',
+                    'queryHash' => $queryHash,
+                ];
+                break;
+
             case 'calculate_metric':
                 $metric = strtoupper((string) ($rawArgs['metric'] ?? 'MÉTRICA'));
                 $val = isset($result['value']) ? round((float) $result['value'], 3) : 'N/A';
@@ -402,6 +500,15 @@ class ToolRegistry
                 ];
                 break;
 
+            case 'get_kpi_goals':
+                $citations[] = [
+                    'title' => 'Metas operacionales y umbrales gobernados consultados para VOC',
+                    'factType' => 'fact',
+                    'resourceId' => 'kpi_goals_registry',
+                    'queryHash' => $queryHash,
+                ];
+                break;
+
             default:
                 $citations[] = [
                     'title' => "Ejecución técnica de herramienta: {$toolName}",
@@ -425,13 +532,15 @@ class ToolRegistry
 
         return match ($toolName) {
             'query_data' => $this->handleQueryData($arguments, $scopeId),
+            'query_raw_data' => $this->handleQueryRawData($arguments, $scopeId),
             'calculate_metric' => $this->handleCalculateMetric($arguments, $scopeId),
             'compare_metrics' => $this->handleCompareMetrics($arguments, $scopeId),
-            'get_dimension_values' => $this->handleGetDimensionValues($arguments),
+            'get_dimension_values' => $this->handleGetDimensionValues($arguments, $scopeId),
             'get_metric_definition' => $this->handleGetMetricDefinition($arguments),
+            'get_kpi_goals' => $this->handleGetKpiGoals($arguments),
             'analyze_categories' => $this->handleAnalyzeCategories($arguments, $scopeId),
             'run_forecast' => $this->handleRunForecast($arguments),
-            'run_driver_analysis' => $this->handleRunDriverAnalysis($arguments),
+            'run_driver_analysis' => $this->handleRunDriverAnalysis($arguments, $scopeId),
             default => $this->handleDynamicTool($toolName, $arguments, $scopeId),
         };
     }
@@ -460,7 +569,7 @@ class ToolRegistry
 
         $filters = $args['filters'] ?? [];
         if (! empty($args['supervisor'])) {
-            $realSup = $this->pseudonymService->resolveToInternalId($scopeId, $args['supervisor']) ?: $args['supervisor'];
+            $realSup = $this->resolveSupervisor($args['supervisor'], $scopeId);
             $filters[] = ['field' => 'supervisor', 'operator' => '=', 'value' => $realSup];
         }
 
@@ -494,19 +603,153 @@ class ToolRegistry
                 continue;
             }
 
+            $field = strtolower((string) ($filter['field'] ?? ''));
+
             if (is_string($filter['value'])) {
-                $real = $this->pseudonymService->resolveToInternalId($scopeId, $filter['value']);
-                if ($real) {
-                    $filter['value'] = $real;
+                $val = $filter['value'];
+                if ($field === 'supervisor') {
+                    $filter['value'] = $this->resolveSupervisor($val, $scopeId);
+                } elseif ($field === 'agent' || $field === 'agent_name' || $field === 'agent_bms') {
+                    $filter['value'] = $this->resolveAgent($val, $scopeId);
+                } else {
+                    $real = $this->pseudonymService->resolveToInternalId($scopeId, $val);
+                    if ($real) {
+                        $filter['value'] = $real;
+                    }
                 }
             } elseif (is_array($filter['value'])) {
-                $filter['value'] = array_map(function ($val) use ($scopeId) {
-                    return is_string($val) ? ($this->pseudonymService->resolveToInternalId($scopeId, $val) ?: $val) : $val;
+                $filter['value'] = array_map(function ($val) use ($scopeId, $field) {
+                    if (! is_string($val)) {
+                        return $val;
+                    }
+                    if ($field === 'supervisor') {
+                        return $this->resolveSupervisor($val, $scopeId);
+                    }
+                    if ($field === 'agent' || $field === 'agent_name' || $field === 'agent_bms') {
+                        return $this->resolveAgent($val, $scopeId);
+                    }
+
+                    return $this->pseudonymService->resolveToInternalId($scopeId, $val) ?: $val;
                 }, $filter['value']);
             }
         }
 
         return $filters;
+    }
+
+    protected function handleQueryRawData(array $args, string $scopeId): array
+    {
+        $query = Survey::with(['verbatimAnalysis.category']);
+
+        // 1. Direct filters
+        if (! empty($args['category'])) {
+            $catName = $args['category'];
+            $query->whereHas('verbatimAnalysis.category', function ($q) use ($catName) {
+                $q->where('name', $catName);
+            });
+        }
+
+        if (! empty($args['supervisor'])) {
+            $realSup = $this->resolveSupervisor($args['supervisor'], $scopeId);
+            $query->where('supervisor', $realSup);
+        }
+
+        if (! empty($args['keyword'])) {
+            $kw = $args['keyword'];
+            $query->where('verbatim', 'like', "%{$kw}%");
+        }
+
+        // 2. Generic filters array
+        if (! empty($args['filters']) && is_array($args['filters'])) {
+            $filters = $this->resolvePseudonymsInFilters($args['filters'], $scopeId);
+            foreach ($filters as $f) {
+                $field = $f['field'] ?? null;
+                $op = strtolower($f['operator'] ?? '=');
+                $val = $f['value'] ?? null;
+                if (! $field) {
+                    continue;
+                }
+
+                if ($field === 'category') {
+                    $query->whereHas('verbatimAnalysis.category', function ($q) use ($op, $val) {
+                        if ($op === 'in' && is_array($val)) {
+                            $q->whereIn('name', $val);
+                        } else {
+                            $q->where('name', $op === 'like' ? 'like' : '=', $op === 'like' ? "%{$val}%" : $val);
+                        }
+                    });
+
+                    continue;
+                }
+
+                if ($field === 'agent') {
+                    $field = 'agent_name';
+                }
+
+                if ($op === 'in' && is_array($val)) {
+                    $query->whereIn($field, $val);
+                } elseif ($op === 'between' && is_array($val) && count($val) >= 2) {
+                    $query->whereBetween($field, [$val[0], $val[1]]);
+                } elseif ($op === 'like') {
+                    $query->where($field, 'like', "%{$val}%");
+                } else {
+                    $query->where($field, $op, $val);
+                }
+            }
+        }
+
+        $totalMatching = (clone $query)->count();
+
+        // 3. Sorting
+        $sortBy = $args['sort_by'] ?? 'survey_date';
+        $sortDir = strtolower($args['sort_direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+        if (in_array($sortBy, ['survey_date', 'nps_score', 'csat_score', 'professionalism_score', 'tenure_days', 'wave'])) {
+            $query->orderBy($sortBy, $sortDir);
+        }
+
+        // 4. Pagination / Limit
+        $includeAll = ! empty($args['include_all']);
+        if (! $includeAll) {
+            $limit = isset($args['limit']) ? max(1, min(2000, (int) $args['limit'])) : 200;
+            $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+            $query->skip($offset)->take($limit);
+        } else {
+            // Include all (up to safe upper ceiling, e.g. 5000)
+            $query->take(5000);
+        }
+
+        $surveys = $query->get();
+
+        // 5. Sanitize, scrub PII, and pseudonymize each record
+        $scrubber = $this->piiScrubberService ?? app(PiiScrubberService::class);
+        $records = [];
+
+        foreach ($surveys as $s) {
+            $rawVerbatim = (string) ($s->verbatim ?? '');
+            $scrubbedVerbatim = ! empty($rawVerbatim) ? $scrubber->scrubText($rawVerbatim, $scopeId) : '';
+
+            $categoryName = $s->verbatimAnalysis?->category?->name ?? 'Uncategorized';
+
+            $records[] = [
+                'record_ref' => $this->pseudonymService->getOrCreatePseudonym($scopeId, 'survey', (string) $s->survey_id),
+                'survey_date' => $s->survey_date ? $s->survey_date->format('Y-m-d') : null,
+                'nps_score' => $s->nps_score !== null ? (float) $s->nps_score : null,
+                'csat_score' => $s->csat_score !== null ? (float) $s->csat_score : null,
+                'professionalism_score' => $s->professionalism_score !== null ? (float) $s->professionalism_score : null,
+                'verbatim' => $scrubbedVerbatim,
+                'category' => $categoryName,
+                'supervisor_ref' => $s->supervisor ? $this->pseudonymService->getOrCreatePseudonym($scopeId, 'supervisor', (string) $s->supervisor) : null,
+                'agent_ref' => $s->agent_name ? $this->pseudonymService->getOrCreatePseudonym($scopeId, 'agent', (string) $s->agent_name) : null,
+                'wave' => $s->wave,
+                'tenure_days' => $s->tenure_days,
+            ];
+        }
+
+        return [
+            'total_matching_records' => $totalMatching,
+            'returned_count' => count($records),
+            'records' => $records,
+        ];
     }
 
     protected function handleQueryData(array $args, string $scopeId): array
@@ -548,8 +791,19 @@ class ToolRegistry
 
     protected function handleCompareMetrics(array $args, string $scopeId): array
     {
-        $values = array_map(function ($val) use ($scopeId) {
-            return is_string($val) ? ($this->pseudonymService->resolveToInternalId($scopeId, $val) ?: $val) : $val;
+        $dimension = strtolower((string) ($args['dimension'] ?? ''));
+        $values = array_map(function ($val) use ($scopeId, $dimension) {
+            if (! is_string($val)) {
+                return $val;
+            }
+            if ($dimension === 'supervisor') {
+                return $this->resolveSupervisor($val, $scopeId);
+            }
+            if ($dimension === 'agent' || $dimension === 'agent_name') {
+                return $this->resolveAgent($val, $scopeId);
+            }
+
+            return $this->pseudonymService->resolveToInternalId($scopeId, $val) ?: $val;
         }, $args['values'] ?? []);
 
         $dsl = [
@@ -574,7 +828,7 @@ class ToolRegistry
         ];
     }
 
-    protected function handleGetDimensionValues(array $args): array
+    protected function handleGetDimensionValues(array $args, string $scopeId = ''): array
     {
         if ($args['dimension'] === 'category') {
             return [
@@ -587,6 +841,32 @@ class ToolRegistry
             return [
                 'dimension' => 'wave',
                 'values' => Survey::distinct()->whereNotNull('wave')->pluck('wave')->toArray(),
+            ];
+        }
+
+        if ($args['dimension'] === 'supervisor') {
+            $supervisors = Survey::distinct()->whereNotNull('supervisor')->pluck('supervisor')->toArray();
+            $values = array_map(
+                fn ($s) => ! empty($scopeId) ? $this->pseudonymService->getOrCreatePseudonym($scopeId, 'supervisor', $s) : $s,
+                $supervisors
+            );
+
+            return [
+                'dimension' => 'supervisor',
+                'values' => array_values($values),
+            ];
+        }
+
+        if ($args['dimension'] === 'agent') {
+            $agents = Survey::distinct()->whereNotNull('agent_name')->pluck('agent_name')->toArray();
+            $values = array_map(
+                fn ($a) => ! empty($scopeId) ? $this->pseudonymService->getOrCreatePseudonym($scopeId, 'agent', $a) : $a,
+                $agents
+            );
+
+            return [
+                'dimension' => 'agent',
+                'values' => array_values($values),
             ];
         }
 
@@ -610,6 +890,26 @@ class ToolRegistry
         ];
     }
 
+    protected function handleGetKpiGoals(array $args): array
+    {
+        $metric = $args['metric'] ?? 'all';
+        $goals = KpiGoal::getGoalsMap();
+
+        if ($metric !== 'all' && isset($goals[$metric])) {
+            return [
+                'success' => true,
+                'goal' => $goals[$metric],
+                'scale_note' => 'Scores are on a -1.0 to 1.0 scale.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'goals' => $goals,
+            'scale_note' => 'Scores are on a -1.0 to 1.0 scale (1.0 = 100%, 0.5 = 50%, -1.0 = -100%).',
+        ];
+    }
+
     protected function handleAnalyzeCategories(array $args, string $scopeId): array
     {
         $dsl = [
@@ -620,7 +920,7 @@ class ToolRegistry
 
         $supRef = $args['supervisor_ref'] ?? $args['supervisor'] ?? null;
         if (! empty($supRef)) {
-            $realSup = $this->pseudonymService->resolveToInternalId($scopeId, $supRef) ?: $supRef;
+            $realSup = $this->resolveSupervisor($supRef, $scopeId);
             $dsl['filters'][] = ['field' => 'supervisor', 'operator' => '=', 'value' => $realSup];
         }
         if (! empty($args['wave'])) {
@@ -666,11 +966,12 @@ class ToolRegistry
         ];
     }
 
-    protected function handleRunDriverAnalysis(array $args): array
+    protected function handleRunDriverAnalysis(array $args, string $scopeId = ''): array
     {
         $metric = $args['metric'] ?? 'nps';
+        $supervisor = ! empty($args['supervisor']) ? $this->resolveSupervisor($args['supervisor'], $scopeId) : null;
         $filters = array_filter([
-            'supervisor' => $args['supervisor'] ?? null,
+            'supervisor' => $supervisor,
             'wave' => $args['wave'] ?? null,
         ]);
 

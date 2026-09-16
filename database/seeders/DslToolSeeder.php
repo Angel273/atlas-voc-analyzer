@@ -129,7 +129,7 @@ class DslToolSeeder extends Seeder
             [
                 'name' => 'get_dimension_values',
                 'label' => 'Catálogo de Dimensiones Activas',
-                'description' => 'Get the list of active categories or waves present in the dataset.',
+                'description' => 'Get the list of active categories, waves, supervisors, or agents present in the dataset.',
                 'is_builtin' => true,
                 'is_active' => true,
                 'execution_mode' => 'system',
@@ -139,7 +139,7 @@ class DslToolSeeder extends Seeder
                     'properties' => [
                         'dimension' => [
                             'type' => 'string',
-                            'enum' => ['category', 'wave'],
+                            'enum' => ['category', 'wave', 'supervisor', 'agent'],
                         ],
                     ],
                     'required' => ['dimension'],
@@ -238,6 +238,68 @@ class DslToolSeeder extends Seeder
                     'group_by' => ['agent'],
                     'default_limit' => 10,
                 ],
+            ],
+            [
+                'name' => 'query_raw_data',
+                'label' => 'Extracción de Datos Crudos (RAW Surveys y Verbatims)',
+                'description' => 'Query individual raw survey records and customer verbatims with flexible filters (supervisor, agent, category, wave, scores, date range, verbatim keyword search). Returns sanitized JSON records with verbatim customer text, metrics, and metadata for deep qualitative and quantitative analysis.',
+                'is_builtin' => true,
+                'is_active' => true,
+                'execution_mode' => 'system',
+                'sort_order' => 9,
+                'parameters_schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'filters' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'field' => ['type' => 'string', 'description' => 'Field name (supervisor, agent, category, wave, tenure_days, nps_score, csat_score, professionalism_score, survey_date)'],
+                                    'operator' => ['type' => 'string', 'enum' => ['=', '!=', '>', '<', '>=', '<=', 'in', 'between', 'like']],
+                                    'value' => ['description' => 'Scalar value or array of values for in/between operators'],
+                                ],
+                                'required' => ['field', 'operator', 'value'],
+                            ],
+                            'description' => 'Optional array of filters to narrow down the raw dataset.',
+                        ],
+                        'keyword' => [
+                            'type' => 'string',
+                            'description' => 'Optional search term to filter surveys containing specific text or keywords in their verbatim feedback.',
+                        ],
+                        'category' => [
+                            'type' => 'string',
+                            'description' => 'Optional category name filter (e.g. Customer Service, Billing & Payments, etc.).',
+                        ],
+                        'supervisor' => [
+                            'type' => 'string',
+                            'description' => 'Optional supervisor pseudonym token (e.g. SUP_...) or name.',
+                        ],
+                        'include_all' => [
+                            'type' => 'boolean',
+                            'description' => 'If true, retrieves all matching raw records uploaded to the system without truncation.',
+                        ],
+                        'limit' => [
+                            'type' => 'integer',
+                            'description' => 'Maximum number of raw records to retrieve (default 200, up to all records in dataset).',
+                        ],
+                        'offset' => [
+                            'type' => 'integer',
+                            'description' => 'Offset for pagination.',
+                        ],
+                        'sort_by' => [
+                            'type' => 'string',
+                            'enum' => ['survey_date', 'nps_score', 'csat_score', 'professionalism_score', 'tenure_days'],
+                            'description' => 'Field to sort raw records by.',
+                        ],
+                        'sort_direction' => [
+                            'type' => 'string',
+                            'enum' => ['asc', 'desc'],
+                            'description' => 'Sort direction (asc or desc).',
+                        ],
+                    ],
+                ],
+                'dsl_template' => null,
             ],
         ];
 

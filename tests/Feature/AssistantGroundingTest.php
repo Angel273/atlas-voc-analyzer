@@ -175,4 +175,76 @@ class AssistantGroundingTest extends TestCase
             'id' => $this->conversation->id,
         ]);
     }
+
+    public function test_query_raw_data_returns_scrubbed_verbatims_and_pseudonymized_identities(): void
+    {
+        $import = Import::create([
+            'original_filename' => 'raw_test.xlsx',
+            'file_hash' => 'hash_raw_test',
+            'sheet_name' => 'Sheet1',
+            'header_row' => 1,
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        Survey::create([
+            'survey_id' => 'SRV_RAW_001',
+            'nps_score' => 1.0,
+            'csat_score' => 1.0,
+            'professionalism_score' => 1.0,
+            'agent_bms' => 'BMS_2001',
+            'agent_name' => 'Carlos Perez',
+            'supervisor' => 'Maria Gonzalez',
+            'verbatim' => 'Excelente soporte. Mi email es cliente@example.com y teléfono 555-123-4567.',
+            'survey_date' => '2026-09-02',
+            'wave' => 'W1',
+            'tenure_days' => 45,
+            'record_hash' => 'hash_raw_001',
+            'import_id' => $import->id,
+        ]);
+
+        $pseudonymService = new PseudonymService;
+        $minimizer = new DataMinimizerService($pseudonymService);
+        $registry = new MetricRegistry;
+        $validator = new QueryDslValidator($registry);
+        $planner = new QueryPlanner($registry);
+        $queryEngine = new QueryEngine($validator, $planner);
+        $forecastEngine = new ForecastEngine($registry);
+
+        $toolRegistry = new ToolRegistry(
+            $queryEngine,
+            $registry,
+            $pseudonymService,
+            $minimizer,
+            $forecastEngine
+        );
+
+        $result = $toolRegistry->executeToolWithGrounding(
+            toolName: 'query_raw_data',
+            arguments: ['limit' => 5],
+            scopeId: (string) $this->conversation->id
+        );
+
+        $this->assertArrayHasKey('result', $result);
+        $this->assertArrayHasKey('records', $result['result']);
+        $this->assertNotEmpty($result['result']['records']);
+
+        $record = $result['result']['records'][0];
+        $this->assertArrayHasKey('record_ref', $record);
+        $this->assertArrayHasKey('verbatim', $record);
+        $this->assertArrayHasKey('supervisor_ref', $record);
+
+        // Verify PII was scrubbed from verbatim
+        $this->assertStringNotContainsString('cliente@example.com', $record['verbatim']);
+        $this->assertStringContainsString('[EMAIL_REDACTED]', $record['verbatim']);
+        $this->assertStringNotContainsString('555-123-4567', $record['verbatim']);
+
+        // Verify supervisor was pseudonymized
+        $this->assertStringNotContainsString('Maria Gonzalez', $record['supervisor_ref']);
+        $this->assertStringStartsWith('SUP_', $record['supervisor_ref']);
+
+        // Verify citation was generated
+        $this->assertNotEmpty($result['citations']);
+        $this->assertStringContainsString('Extracción RAW de datos', $result['citations'][0]['title']);
+    }
 }

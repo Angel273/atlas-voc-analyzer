@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import AppLayout from '@/Layouts/AppLayout';
 import KpiCard from '@/Components/KpiCard';
 import GridWidget from '@/Components/GridWidget';
 import EChartComponent from '@/Components/EChartComponent';
 import WidgetConfigSidebar from '@/Components/WidgetConfigSidebar';
+import KpiGoalsModal, { KpiGoalsMap } from '@/Components/KpiGoalsModal';
 import {
     Filter,
     RefreshCw,
@@ -19,6 +20,7 @@ import {
     AlertCircle,
     Sliders,
     Search,
+    Target,
 } from 'lucide-react';
 import { Widget, Dashboard, WidgetType } from '@/types/dashboard';
 
@@ -52,6 +54,16 @@ export default function DashboardIndex({
     filter_options,
     categorization_status,
 }: Props) {
+    const pageProps = usePage<{ kpi_goals?: KpiGoalsMap }>().props;
+    const [goals, setGoals] = useState<KpiGoalsMap | null>(pageProps.kpi_goals || null);
+    const [isGoalsModalOpen, setIsGoalsModalOpen] = useState<boolean>(false);
+
+    useEffect(() => {
+        if (pageProps.kpi_goals) {
+            setGoals(pageProps.kpi_goals);
+        }
+    }, [pageProps.kpi_goals]);
+
     const gridRef = useRef<HTMLDivElement>(null);
 
     // Saved global filters from official dashboard record
@@ -459,6 +471,17 @@ export default function DashboardIndex({
                         <span>{isSaving ? 'Guardando...' : isLocalDirty ? 'Guardar Cambios *' : 'Guardar Vista'}</span>
                     </button>
 
+                    {/* Metas / KPI Goals Modal Toggle */}
+                    <button
+                        type="button"
+                        onClick={() => setIsGoalsModalOpen(true)}
+                        className="px-3 py-2 text-xs font-semibold uppercase tracking-wider bg-white text-[#18221d] border border-[#ccd1ca] hover:border-[#18221d] hover:bg-[#f7f6f1] flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Definir o ajustar metas operacionales de NPS, CSAT y Profesionalismo"
+                    >
+                        <Target className="w-3.5 h-3.5 text-[#18221d]" />
+                        <span>Metas Operacionales</span>
+                    </button>
+
                     {/* Edit Layout Mode Toggle */}
                     <button
                         type="button"
@@ -676,14 +699,25 @@ export default function DashboardIndex({
 
                         if (rawVal !== undefined && rawVal !== null) {
                             if (metricKey === 'nps') {
+                                const npsTarget = goals?.nps?.target_value ?? 0.50;
+                                const npsWarn = goals?.nps?.warning_threshold ?? 0.20;
                                 formattedVal = (rawVal * 100).toFixed(1);
-                                statusType = rawVal >= 0.4 ? 'positive' : rawVal >= 0.0 ? 'warning' : 'negative';
-                                statusText = rawVal >= 0.4 ? 'Sobre meta' : rawVal >= 0.0 ? 'Atención' : 'Debajo meta';
-                            } else if (metricKey === 'csat' || metricKey === 'professionalism') {
+                                statusType = rawVal >= npsTarget ? 'positive' : rawVal >= npsWarn ? 'warning' : 'negative';
+                                statusText = rawVal >= npsTarget ? 'Sobre meta' : rawVal >= npsWarn ? 'En riesgo' : 'Debajo meta';
+                            } else if (metricKey === 'csat') {
+                                const csatTarget = goals?.csat?.target_value ?? 0.80;
+                                const csatWarn = goals?.csat?.warning_threshold ?? 0.70;
                                 formattedVal = (rawVal * 100).toFixed(1);
                                 unit = '%';
-                                statusType = rawVal >= 0.5 ? 'positive' : rawVal >= 0.0 ? 'warning' : 'negative';
-                                statusText = rawVal >= 0.5 ? 'Sobre meta' : rawVal >= 0.0 ? 'Atención' : 'Debajo meta';
+                                statusType = rawVal >= csatTarget ? 'positive' : rawVal >= csatWarn ? 'warning' : 'negative';
+                                statusText = rawVal >= csatTarget ? 'Sobre meta' : rawVal >= csatWarn ? 'En riesgo' : 'Debajo meta';
+                            } else if (metricKey === 'professionalism') {
+                                const profTarget = goals?.professionalism?.target_value ?? 0.85;
+                                const profWarn = goals?.professionalism?.warning_threshold ?? 0.75;
+                                formattedVal = (rawVal * 100).toFixed(1);
+                                unit = '%';
+                                statusType = rawVal >= profTarget ? 'positive' : rawVal >= profWarn ? 'warning' : 'negative';
+                                statusText = rawVal >= profTarget ? 'Sobre meta' : rawVal >= profWarn ? 'En riesgo' : 'Debajo meta';
                             } else if (metricKey === 'survey_volume') {
                                 formattedVal = Number(rawVal).toLocaleString();
                                 unit = 'respuestas';
@@ -691,6 +725,17 @@ export default function DashboardIndex({
                                 statusText = 'Volumen';
                             }
                         }
+
+                        const kpiGoalForMetric = goals?.[metricKey];
+                        const defaultTargetDisplay = kpiGoalForMetric
+                            ? (metricKey === 'nps'
+                                ? `${kpiGoalForMetric.target_value >= 0 ? '+' : ''}${(kpiGoalForMetric.target_value * 100).toFixed(1)}%`
+                                : `${(kpiGoalForMetric.target_value * 100).toFixed(1)}%`)
+                            : undefined;
+
+                        const displayTarget = cfg.showTargetLine && cfg.targetLineValue !== undefined
+                            ? `${cfg.targetLineValue}%`
+                            : defaultTargetDisplay;
 
                         // Accessible fallback table
                         const accessibleTable = (
@@ -718,7 +763,7 @@ export default function DashboardIndex({
                             <GridWidget
                                 key={widget.id}
                                 title={widget.title}
-                                subtitle={cfg.showTargetLine ? `Meta: ${cfg.targetLineLabel || cfg.targetLineValue || 'Definida'}` : undefined}
+                                subtitle={cfg.showTargetLine ? `Meta: ${cfg.targetLineLabel || cfg.targetLineValue || 'Definida'}` : (displayTarget ? `Meta: ${displayTarget}` : undefined)}
                                 colSpan={widget.w}
                                 rowSpan={widget.h || 3}
                                 isEditing={isEditing}
@@ -737,7 +782,7 @@ export default function DashboardIndex({
                                     value={isLoading ? '...' : formattedVal}
                                     unit={unit}
                                     sampleSize={row.sample_count || (metricKey === 'survey_volume' ? row.survey_volume : undefined)}
-                                    target={cfg.showTargetLine ? `${cfg.targetLineValue ?? 50}%` : undefined}
+                                    target={displayTarget}
                                     statusText={statusText}
                                     statusType={statusType}
                                 />
@@ -1421,6 +1466,13 @@ export default function DashboardIndex({
                     </div>
                 </div>
             )}
+
+            <KpiGoalsModal
+                isOpen={isGoalsModalOpen}
+                onClose={() => setIsGoalsModalOpen(false)}
+                initialGoals={goals}
+                onGoalsSaved={(newGoals) => setGoals(newGoals)}
+            />
         </AppLayout>
     );
 }

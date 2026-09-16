@@ -98,6 +98,12 @@ class AssistantController extends Controller
             'content' => ['required', 'string', 'max:5000'],
         ]);
 
+        // Ensure heavy analytical queries and large RAW JSON payloads have sufficient execution time
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+        @ini_set('memory_limit', '512M');
+
         $user = Auth::user();
         $userInput = $validated['content'];
 

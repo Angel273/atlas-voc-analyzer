@@ -14,12 +14,13 @@ class PiiScrubberTest extends TestCase
     use RefreshDatabase;
 
     protected PiiScrubberService $scrubber;
+
     protected PseudonymService $pseudonyms;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->pseudonyms = new PseudonymService();
+        $this->pseudonyms = new PseudonymService;
         $this->scrubber = new PiiScrubberService($this->pseudonyms);
     }
 
@@ -46,7 +47,7 @@ class PiiScrubberTest extends TestCase
             'import_id' => $import->id,
         ]);
 
-        $text = "Customer john.doe@example.com called 555-123-4567 complaining about Maria Santos and agent BMS_9981.";
+        $text = 'Customer john.doe@example.com called 555-123-4567 complaining about Maria Santos and agent BMS_9981.';
         $metadata = [];
         $sanitized = $this->scrubber->scrubText($text, 'scope_test', $metadata);
 
@@ -59,5 +60,40 @@ class PiiScrubberTest extends TestCase
         $this->assertStringContainsString('[PHONE_REDACTED]', $sanitized);
         $this->assertStringContainsString('SUP_', $sanitized);
         $this->assertStringContainsString('AGT_', $sanitized);
+    }
+
+    public function test_scrubs_supervisors_by_first_name_and_partial_name(): void
+    {
+        $import = Import::create([
+            'original_filename' => 'test2.xlsx',
+            'file_hash' => 'hash2',
+            'sheet_name' => 'Sheet1',
+            'header_row' => 1,
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        Survey::create([
+            'survey_id' => 'SRV_MICHAEL',
+            'nps_score' => 0.8,
+            'csat_score' => 0.9,
+            'professionalism_score' => 0.95,
+            'agent_bms' => '4250331',
+            'supervisor' => 'Majano Siliezar, Michael E',
+            'survey_date' => '2026-09-01',
+            'record_hash' => 'hash_michael',
+            'import_id' => $import->id,
+        ]);
+
+        $text = 'haz un analisis completo del equipo de michael';
+        $metadata = [];
+        $sanitized = $this->scrubber->scrubText($text, 'scope_test_michael', $metadata);
+
+        $this->assertStringNotContainsString('michael', strtolower($sanitized));
+        $this->assertStringContainsString('SUP_', $sanitized);
+        $this->assertSame(1, $metadata['supervisors']);
+
+        $mapping = $this->pseudonyms->getMappingForScope('scope_test_michael');
+        $this->assertContains('Majano Siliezar, Michael E', $mapping);
     }
 }

@@ -118,7 +118,7 @@ class GeminiProvider implements AiProvider
 
         try {
             $response = Http::withHeaders(['Content-Type' => 'application/json'])
-                ->timeout(120)
+                ->timeout(300)
                 ->post($url, $payload);
 
             if (! $response->successful()) {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\KpiGoal;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -53,6 +54,7 @@ class HandleInertiaRequests extends Middleware
                 'name' => config('app.name', 'ATLAS VOC Analysis'),
                 'version' => '1.0.0',
             ],
+            'kpi_goals' => fn () => $user ? KpiGoal::getGoalsMap() : null,
         ]);
     }
 }

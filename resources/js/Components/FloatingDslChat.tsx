@@ -319,16 +319,17 @@ export default function FloatingDslChat() {
                                     key={msg.id}
                                     className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                                 >
-                                    <div className="text-[10px] text-[#687169] mb-1 font-mono">
-                                        {isUser ? 'Tú' : 'Arquitecto DSL'} ·{' '}
-                                        {msg.created_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <div className="text-[11px] text-[#687169] mb-1.5 font-mono flex items-center gap-1.5">
+                                        <span className="font-bold text-[#18221d]">{isUser ? 'Usted' : 'Arquitecto DSL'}</span>
+                                        <span>·</span>
+                                        <span>{msg.created_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                     </div>
 
                                     <div
-                                        className={`p-3 text-xs leading-relaxed border max-w-[92%] ${
+                                        className={`border max-w-[94%] shadow-xs ${
                                             isUser
-                                                ? 'bg-[#18221d] text-white border-[#18221d] font-sans'
-                                                : 'bg-white text-[#18221d] border-[#ccd1ca] shadow-xs'
+                                                ? 'p-3.5 sm:px-4 sm:py-3 bg-[#18221d] text-white border-[#18221d] text-sm leading-relaxed font-sans'
+                                                : 'p-4 sm:p-5 bg-white text-[#18221d] border-[#ccd1ca]'
                                         }`}
                                     >
                                         <MarkdownRenderer content={msg.content} />
@@ -504,13 +505,13 @@ export default function FloatingDslChat() {
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 placeholder="Describe la consulta DSL que necesitas..."
-                                className="flex-1 p-2 bg-white border border-[#ccd1ca] text-xs font-sans text-[#18221d] focus:outline-none focus:border-[#18221d]"
+                                className="flex-1 px-3 py-2.5 bg-white border border-[#ccd1ca] text-xs sm:text-sm font-sans text-[#18221d] focus:outline-none focus:border-[#18221d]"
                             />
 
                             <button
                                 type="submit"
                                 disabled={!input.trim() || loading}
-                                className="px-3 py-2 bg-[#d7f45b] text-[#18221d] border border-[#18221d] hover:bg-[#cbf03f] disabled:opacity-50 text-xs font-semibold uppercase flex items-center justify-center transition-colors"
+                                className="px-4 py-2.5 bg-[#d7f45b] text-[#18221d] border border-[#18221d] hover:bg-[#cbf03f] disabled:opacity-50 text-xs font-semibold uppercase flex items-center justify-center transition-colors cursor-pointer"
                             >
                                 <Send className="w-3.5 h-3.5" />
                             </button>

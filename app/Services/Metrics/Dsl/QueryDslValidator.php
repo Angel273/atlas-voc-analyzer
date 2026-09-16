@@ -8,7 +8,7 @@ use InvalidArgumentException;
 class QueryDslValidator
 {
     public const ALLOWED_DIMENSIONS = [
-        'agent' => 'agent_bms',
+        'agent' => 'agent_name',
         'agent_bms' => 'agent_bms',
         'agent_name' => 'agent_name',
         'supervisor' => 'supervisor',
@@ -20,6 +20,7 @@ class QueryDslValidator
     ];
 
     public const ALLOWED_OPERATORS = ['=', '!=', '<>', '>', '<', '>=', '<=', 'in', 'between', 'like'];
+
     public const ALLOWED_AGGREGATIONS = ['avg', 'count', 'sum', 'min', 'max'];
 
     public function __construct(
@@ -35,7 +36,7 @@ class QueryDslValidator
         // 1. Validate Metric
         if (isset($dsl['metric'])) {
             $metricKey = strtolower((string) $dsl['metric']);
-            if (!$this->metricRegistry->has($metricKey)) {
+            if (! $this->metricRegistry->has($metricKey)) {
                 throw new InvalidArgumentException("Disallowed or unknown metric: '{$dsl['metric']}'");
             }
             $dsl['metric'] = $metricKey;
@@ -46,7 +47,7 @@ class QueryDslValidator
             $validMetrics = [];
             foreach ($dsl['metrics'] as $m) {
                 $metricKey = strtolower((string) $m);
-                if (!$this->metricRegistry->has($metricKey)) {
+                if (! $this->metricRegistry->has($metricKey)) {
                     throw new InvalidArgumentException("Disallowed or unknown metric in list: '{$m}'");
                 }
                 $validMetrics[] = $metricKey;
@@ -57,7 +58,7 @@ class QueryDslValidator
         // 2. Validate Aggregation
         if (isset($dsl['aggregation'])) {
             $agg = strtolower((string) $dsl['aggregation']);
-            if (!in_array($agg, self::ALLOWED_AGGREGATIONS, true)) {
+            if (! in_array($agg, self::ALLOWED_AGGREGATIONS, true)) {
                 throw new InvalidArgumentException("Disallowed aggregation: '{$dsl['aggregation']}'");
             }
             $dsl['aggregation'] = $agg;
@@ -69,7 +70,7 @@ class QueryDslValidator
             $normalizedGroupBy = [];
             foreach ($groupBy as $dim) {
                 $dimKey = strtolower((string) $dim);
-                if (!array_key_exists($dimKey, self::ALLOWED_DIMENSIONS)) {
+                if (! array_key_exists($dimKey, self::ALLOWED_DIMENSIONS)) {
                     throw new InvalidArgumentException("Disallowed dimension: '{$dim}'");
                 }
                 $normalizedGroupBy[] = $dimKey;
@@ -80,17 +81,17 @@ class QueryDslValidator
         // 4. Validate Filters
         if (isset($dsl['filters']) && is_array($dsl['filters'])) {
             foreach ($dsl['filters'] as &$filter) {
-                if (!isset($filter['field'])) {
+                if (! isset($filter['field'])) {
                     throw new InvalidArgumentException("Filter missing required 'field' property.");
                 }
                 $field = strtolower((string) $filter['field']);
-                if (!array_key_exists($field, self::ALLOWED_DIMENSIONS)) {
+                if (! array_key_exists($field, self::ALLOWED_DIMENSIONS)) {
                     throw new InvalidArgumentException("Filter field '{$filter['field']}' is not in allowlisted dimensions.");
                 }
                 $filter['field'] = $field;
 
                 $op = strtolower((string) ($filter['operator'] ?? '='));
-                if (!in_array($op, self::ALLOWED_OPERATORS, true)) {
+                if (! in_array($op, self::ALLOWED_OPERATORS, true)) {
                     throw new InvalidArgumentException("Disallowed filter operator: '{$filter['operator']}'");
                 }
                 $filter['operator'] = $op;
@@ -99,13 +100,13 @@ class QueryDslValidator
 
         // 5. Validate Date Range
         if (isset($dsl['date_range'])) {
-            if (!is_array($dsl['date_range'])) {
+            if (! is_array($dsl['date_range'])) {
                 throw new InvalidArgumentException("date_range must be an object with optional 'from' and 'to' strings.");
             }
-            if (isset($dsl['date_range']['from']) && !strtotime($dsl['date_range']['from'])) {
+            if (isset($dsl['date_range']['from']) && ! strtotime($dsl['date_range']['from'])) {
                 throw new InvalidArgumentException("Invalid 'from' date format in date_range.");
             }
-            if (isset($dsl['date_range']['to']) && !strtotime($dsl['date_range']['to'])) {
+            if (isset($dsl['date_range']['to']) && ! strtotime($dsl['date_range']['to'])) {
                 throw new InvalidArgumentException("Invalid 'to' date format in date_range.");
             }
         }

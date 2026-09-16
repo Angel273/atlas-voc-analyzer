@@ -11,6 +11,7 @@ use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ForecastController;
 use App\Http\Controllers\ImportController;
+use App\Http\Controllers\KpiGoalController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -46,6 +47,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/', function () {
         return redirect()->route('dashboard');
     });
+
+    // Operational KPI Goals (Metas de NPS, CSAT y Profesionalismo)
+    Route::get('/kpi-goals', [KpiGoalController::class, 'index'])->name('kpi-goals.index');
+    Route::put('/kpi-goals', [KpiGoalController::class, 'update'])->name('kpi-goals.update');
+    Route::post('/kpi-goals', [KpiGoalController::class, 'update'])->name('kpi-goals.store');
 
     // 1. Dashboard Domain
     Route::middleware('permission:dashboard.view')->group(function () {
