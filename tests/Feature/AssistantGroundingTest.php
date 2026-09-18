@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\Import;
 use App\Models\Permission;
 use App\Models\Survey;
 use App\Models\User;
+use App\Models\VerbatimAnalysis;
 use App\Services\Ai\Gateway\AiGateway;
 use App\Services\Ai\Providers\MockAiProvider;
 use App\Services\Ai\Tools\ToolRegistry;
@@ -246,5 +248,181 @@ class AssistantGroundingTest extends TestCase
         // Verify citation was generated
         $this->assertNotEmpty($result['citations']);
         $this->assertStringContainsString('Extracción RAW de datos', $result['citations'][0]['title']);
+    }
+
+    public function test_analyze_categories_returns_total_and_percentages(): void
+    {
+        $cat1 = Category::create(['name' => 'Policy Issues', 'active' => true]);
+        $cat2 = Category::create(['name' => 'Communication', 'active' => true]);
+
+        $import = Import::create([
+            'original_filename' => 'cat_test.xlsx',
+            'file_hash' => 'hash_cat_test',
+            'sheet_name' => 'Sheet1',
+            'header_row' => 1,
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        // 3 surveys in Policy Issues, 1 survey in Communication
+        for ($i = 1; $i <= 3; $i++) {
+            $s = Survey::create([
+                'survey_id' => "SRV_CAT_P{$i}",
+                'nps_score' => -1.0,
+                'csat_score' => -1.0,
+                'professionalism_score' => 0.0,
+                'agent_bms' => "BMS_{$i}",
+                'supervisor' => 'Sup Test',
+                'survey_date' => '2026-09-03',
+                'record_hash' => "hash_cat_p{$i}",
+                'import_id' => $import->id,
+            ]);
+
+            VerbatimAnalysis::create([
+                'survey_id' => $s->survey_id,
+                'category_id' => $cat1->id,
+                'confidence' => 0.95,
+                'status' => 'completed',
+            ]);
+        }
+
+        $s4 = Survey::create([
+            'survey_id' => 'SRV_CAT_C1',
+            'nps_score' => 1.0,
+            'csat_score' => 1.0,
+            'professionalism_score' => 1.0,
+            'agent_bms' => 'BMS_4',
+            'supervisor' => 'Sup Test',
+            'survey_date' => '2026-09-03',
+            'record_hash' => 'hash_cat_c1',
+            'import_id' => $import->id,
+        ]);
+
+        VerbatimAnalysis::create([
+            'survey_id' => $s4->survey_id,
+            'category_id' => $cat2->id,
+            'confidence' => 0.90,
+            'status' => 'completed',
+        ]);
+
+        $pseudonymService = new PseudonymService;
+        $minimizer = new DataMinimizerService($pseudonymService);
+        $registry = new MetricRegistry;
+        $validator = new QueryDslValidator($registry);
+        $planner = new QueryPlanner($registry);
+        $queryEngine = new QueryEngine($validator, $planner);
+        $forecastEngine = new ForecastEngine($registry);
+
+        $toolRegistry = new ToolRegistry(
+            $queryEngine,
+            $registry,
+            $pseudonymService,
+            $minimizer,
+            $forecastEngine
+        );
+
+        $result = $toolRegistry->executeTool(
+            toolName: 'analyze_categories',
+            arguments: [],
+            scopeId: (string) $this->conversation->id
+        );
+
+        $this->assertArrayHasKey('total_surveys_analyzed', $result);
+        $this->assertEquals(4, $result['total_surveys_analyzed']);
+        $this->assertArrayHasKey('category_distribution', $result);
+        $this->assertNotEmpty($result['category_distribution']);
+
+        $dist = collect($result['category_distribution'])->keyBy('category');
+        $this->assertTrue($dist->has('Policy Issues'));
+        $this->assertTrue($dist->has('Communication'));
+
+        // Policy Issues should be 3/4 = 75%
+        $this->assertEquals(75.0, $dist['Policy Issues']['percentage']);
+        $this->assertEquals('75%', $dist['Policy Issues']['formatted_percentage']);
+
+        // Communication should be 1/4 = 25%
+        $this->assertEquals(25.0, $dist['Communication']['percentage']);
+        $this->assertEquals('25%', $dist['Communication']['formatted_percentage']);
+    }
+
+    public function test_query_data_returns_percentage_of_total_when_grouped(): void
+    {
+        $import = Import::create([
+            'original_filename' => 'grouped_test.xlsx',
+            'file_hash' => 'hash_grouped_test',
+            'sheet_name' => 'Sheet1',
+            'header_row' => 1,
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        for ($i = 1; $i <= 6; $i++) {
+            Survey::create([
+                'survey_id' => "SRV_GRP_A{$i}",
+                'nps_score' => 1.0,
+                'csat_score' => 1.0,
+                'professionalism_score' => 1.0,
+                'agent_bms' => 'BMS_GRP_A',
+                'supervisor' => 'Supervisor Alpha',
+                'survey_date' => '2026-09-04',
+                'record_hash' => "hash_grp_a{$i}",
+                'import_id' => $import->id,
+            ]);
+        }
+
+        for ($i = 1; $i <= 4; $i++) {
+            Survey::create([
+                'survey_id' => "SRV_GRP_B{$i}",
+                'nps_score' => -1.0,
+                'csat_score' => -1.0,
+                'professionalism_score' => 0.0,
+                'agent_bms' => 'BMS_GRP_B',
+                'supervisor' => 'Supervisor Beta',
+                'survey_date' => '2026-09-04',
+                'record_hash' => "hash_grp_b{$i}",
+                'import_id' => $import->id,
+            ]);
+        }
+
+        $pseudonymService = new PseudonymService;
+        $minimizer = new DataMinimizerService($pseudonymService);
+        $registry = new MetricRegistry;
+        $validator = new QueryDslValidator($registry);
+        $planner = new QueryPlanner($registry);
+        $queryEngine = new QueryEngine($validator, $planner);
+        $forecastEngine = new ForecastEngine($registry);
+
+        $toolRegistry = new ToolRegistry(
+            $queryEngine,
+            $registry,
+            $pseudonymService,
+            $minimizer,
+            $forecastEngine
+        );
+
+        $result = $toolRegistry->executeTool(
+            toolName: 'query_data',
+            arguments: [
+                'metric' => 'survey_volume',
+                'group_by' => ['supervisor'],
+            ],
+            scopeId: (string) $this->conversation->id
+        );
+
+        $this->assertArrayHasKey('results', $result);
+        $this->assertCount(2, $result['results']);
+
+        $rows = $result['results'];
+        $first = $rows[0];
+        $this->assertArrayHasKey('percentage_of_total', $first);
+        $this->assertArrayHasKey('formatted_percentage', $first);
+
+        // Alpha is 6/10 = 60%, Beta is 4/10 = 40%
+        $this->assertEquals(60.0, $first['percentage_of_total']);
+        $this->assertEquals('60%', $first['formatted_percentage']);
+
+        $second = $rows[1];
+        $this->assertEquals(40.0, $second['percentage_of_total']);
+        $this->assertEquals('40%', $second['formatted_percentage']);
     }
 }

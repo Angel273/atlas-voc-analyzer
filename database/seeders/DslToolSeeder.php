@@ -13,7 +13,7 @@ class DslToolSeeder extends Seeder
             [
                 'name' => 'query_data',
                 'label' => 'Consulta Agregada Query DSL',
-                'description' => 'Query aggregated Voice of Customer metrics (NPS, CSAT, professionalism, survey_volume) grouped by dimensions (supervisor, agent, wave, tenure, survey_date, category) using the secure Query DSL.',
+                'description' => 'Query aggregated Voice of Customer metrics (NPS, CSAT, professionalism, survey_volume) grouped by dimensions (supervisor, agent, wave, tenure, survey_date, category) using the secure Query DSL. Returns sample_count and percentage_of_total for grouped distributions.',
                 'is_builtin' => true,
                 'is_active' => true,
                 'execution_mode' => 'system',
@@ -169,7 +169,7 @@ class DslToolSeeder extends Seeder
             [
                 'name' => 'analyze_categories',
                 'label' => 'Distribución de Categorías Verbatim',
-                'description' => 'Get distribution of verbatim feedback across authorized classification categories.',
+                'description' => 'Get distribution of verbatim feedback across authorized classification categories, returning sample counts, total analyzed, and percentage distribution.',
                 'is_builtin' => true,
                 'is_active' => true,
                 'execution_mode' => 'system',

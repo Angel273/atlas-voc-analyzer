@@ -72,7 +72,7 @@ class ToolRegistry
         return [
             [
                 'name' => 'query_data',
-                'description' => 'Query aggregated Voice of Customer metrics (NPS, CSAT, professionalism, survey_volume) grouped by dimensions (supervisor, agent, wave, tenure, survey_date, category) using the secure Query DSL.',
+                'description' => 'Query aggregated Voice of Customer metrics (NPS, CSAT, professionalism, survey_volume) grouped by dimensions (supervisor, agent, wave, tenure, survey_date, category) using the secure Query DSL. Returns sample_count and percentage_of_total for grouped distributions.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
@@ -198,7 +198,7 @@ class ToolRegistry
             ],
             [
                 'name' => 'analyze_categories',
-                'description' => 'Get distribution of verbatim feedback across authorized classification categories.',
+                'description' => 'Get distribution of verbatim feedback across authorized classification categories, returning sample counts, total analyzed, and percentage distribution.',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
@@ -588,6 +588,22 @@ class ToolRegistry
         $result = $this->queryEngine->execute($dsl);
         $minimized = $this->dataMinimizer->minimizeToolResult($result['data'], $scopeId);
 
+        if (! empty($groupBy) && is_array($minimized) && count($minimized) > 0) {
+            $hasSampleCount = isset($minimized[0]['sample_count']);
+            $countKey = $metric === 'survey_volume' ? 'survey_volume' : ($hasSampleCount ? 'sample_count' : null);
+            if ($countKey) {
+                $totalCount = array_sum(array_column($minimized, $countKey));
+                if ($totalCount > 0) {
+                    foreach ($minimized as &$row) {
+                        $cnt = (float) ($row[$countKey] ?? 0);
+                        $pct = round(($cnt / $totalCount) * 100, 2);
+                        $row['percentage_of_total'] = $pct;
+                        $row['formatted_percentage'] = "{$pct}%";
+                    }
+                }
+            }
+        }
+
         return [
             'tool' => $tool->name,
             'metric' => $metric,
@@ -761,6 +777,23 @@ class ToolRegistry
         $result = $this->queryEngine->execute($args);
         $minimized = $this->dataMinimizer->minimizeToolResult($result['data'], $scopeId);
 
+        if (! empty($args['group_by']) && is_array($minimized) && count($minimized) > 0) {
+            $metricKey = $args['metric'] ?? 'survey_volume';
+            $hasSampleCount = isset($minimized[0]['sample_count']);
+            $countKey = $metricKey === 'survey_volume' ? 'survey_volume' : ($hasSampleCount ? 'sample_count' : null);
+            if ($countKey) {
+                $totalCount = array_sum(array_column($minimized, $countKey));
+                if ($totalCount > 0) {
+                    foreach ($minimized as &$row) {
+                        $cnt = (float) ($row[$countKey] ?? 0);
+                        $pct = round(($cnt / $totalCount) * 100, 2);
+                        $row['percentage_of_total'] = $pct;
+                        $row['formatted_percentage'] = "{$pct}%";
+                    }
+                }
+            }
+        }
+
         return [
             'metric' => $args['metric'],
             'results_count' => count($minimized),
@@ -928,9 +961,21 @@ class ToolRegistry
         }
 
         $result = $this->queryEngine->execute($dsl);
+        $data = $result['data'] ?? [];
+        $totalVolume = (int) array_sum(array_column($data, 'survey_volume'));
+
+        $distributionWithPercentages = array_map(function ($item) use ($totalVolume) {
+            $vol = (int) ($item['survey_volume'] ?? 0);
+            $pct = $totalVolume > 0 ? round(($vol / $totalVolume) * 100, 2) : 0.0;
+            $item['percentage'] = $pct;
+            $item['formatted_percentage'] = "{$pct}%";
+
+            return $item;
+        }, $data);
 
         return [
-            'category_distribution' => $result['data'],
+            'total_surveys_analyzed' => $totalVolume,
+            'category_distribution' => $distributionWithPercentages,
         ];
     }
 
