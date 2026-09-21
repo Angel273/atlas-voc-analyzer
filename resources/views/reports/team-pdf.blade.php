@@ -422,7 +422,7 @@
     {{-- EXECUTIVE SUMMARY --}}
     <div class="section-title">Resumen Ejecutivo de Gestión</div>
     <div class="exec-summary-box">
-        {{ $narrative['executive_summary'] }}
+        {{ $narrative['executive_summary'] ?? 'Durante el período evaluado se consolidó el desempeño operativo del equipo.' }}
     </div>
 
     {{-- KEY METRICS CARDS --}}
@@ -576,7 +576,7 @@
                 <div class="column-box" style="border-left: 3px solid #16a34a;">
                     <div class="column-box-title" style="color: #166534;">Fortalezas y Logros Operacionales</div>
                     <ul>
-                        @foreach($narrative['team_strengths'] as $st)
+                        @foreach($narrative['team_strengths'] ?? [] as $st)
                             <li>{{ $st }}</li>
                         @endforeach
                     </ul>
@@ -586,7 +586,7 @@
                 <div class="column-box" style="border-left: 3px solid #dc2626;">
                     <div class="column-box-title" style="color: #991b1b;">Riesgos y Brechas Críticas</div>
                     <ul>
-                        @foreach($narrative['team_risks'] as $rk)
+                        @foreach($narrative['team_risks'] ?? [] as $rk)
                             <li>{{ $rk }}</li>
                         @endforeach
                     </ul>
@@ -948,14 +948,14 @@
     <div class="avoid-break">
         <div class="section-title">Plan de Acción Operacional Prioritario</div>
         <ul style="padding-left: 16px; font-size: 8.5px; line-height: 1.45; color: #1e293b;">
-            @foreach($narrative['recommended_actions'] as $act)
+            @foreach($narrative['recommended_actions'] ?? [] as $act)
                 <li style="margin-bottom: 4px;">{{ $act }}</li>
             @endforeach
         </ul>
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 10px; border-radius: 4px; margin-top: 8px;">
             <strong style="font-size: 8px; color: #475569;">Nota de Calidad y Gobierno del Dato:</strong>
-            <span style="font-size: 8px; color: #334155;">{{ $narrative['data_quality_notes'] }}</span>
+            <span style="font-size: 8px; color: #334155;">{{ $narrative['data_quality_notes'] ?? 'Datos validados conforme a las reglas metodológicas de la organización.' }}</span>
         </div>
     </div>
 

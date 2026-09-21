@@ -673,4 +673,76 @@ class TeamReportGenerationTest extends TestCase
         $this->assertEquals('detractor', $sentiments['-1']);
         $this->assertEquals('passive', $sentiments['0']);
     }
+
+    public function test_download_regenerates_pdf_when_missing_from_storage(): void
+    {
+        // 1. Create a completed report with stored metrics and narrative
+        $report = TeamReport::create([
+            'team_id' => $this->team->id,
+            'period_from' => '2026-01-01',
+            'period_to' => '2026-01-15',
+            'cutoff_date' => '2026-01-15',
+            'data_version' => 'test_data_ver',
+            'model' => 'gemini-1.5-flash',
+            'status' => 'completed',
+            'progress' => 100,
+            'stage' => 'Completado con éxito',
+            'file_path' => 'reports/test_missing.pdf',
+            'file_hash' => 'dummy_hash',
+            'file_size' => 1234,
+            'created_by_user_id' => $this->reportManager->id,
+            'metrics_data' => [
+                'team' => [
+                    'id' => $this->team->id,
+                    'name' => $this->team->name,
+                    'code' => $this->team->code,
+                    'supervisor_name' => $this->supervisor->name,
+                ],
+                'period' => ['from' => '2026-01-01', 'to' => '2026-01-15', 'cutoff_date' => '2026-01-15'],
+                'data_version' => 'test_data_ver',
+                'is_low_sample' => false,
+                'metrics' => [
+                    'survey_volume' => 10,
+                    'nps_score' => 0.5,
+                    'csat_score' => 0.85,
+                    'professionalism_score' => 0.9,
+                    'goals_comparison' => [
+                        'nps' => ['target' => 0.5, 'actual' => 0.5, 'difference' => 0.0, 'meets_goal' => true],
+                        'csat' => ['target' => 0.8, 'actual' => 0.85, 'difference' => 0.05, 'meets_goal' => true],
+                        'professionalism' => ['target' => 0.85, 'actual' => 0.9, 'difference' => 0.05, 'meets_goal' => true],
+                    ],
+                ],
+                'daily_trends' => [
+                    ['date' => '2026-01-05', 'volume' => 5, 'nps' => 0.4, 'csat' => 0.8, 'professionalism' => 0.85],
+                    ['date' => '2026-01-10', 'volume' => 5, 'nps' => 0.6, 'csat' => 0.9, 'professionalism' => 0.95],
+                ],
+                'agent_reviews' => [],
+                'verbatim_categories' => [],
+                'open_cases' => [],
+            ],
+            'narrative' => [
+                'executive_summary' => 'Resumen ejecutivo de prueba.',
+                'team_strengths' => ['Excelente atención al cliente.'],
+                'team_risks' => ['Tiempo de espera en horas pico.'],
+                'agent_reviews' => [],
+                'recommended_actions' => ['Capacitación continua.'],
+                'data_quality_notes' => '100% verificado.',
+            ],
+        ]);
+
+        // Ensure the file is NOT on disk
+        Storage::disk('local')->delete('reports/test_missing.pdf');
+        $this->assertFalse(Storage::disk('local')->exists('reports/test_missing.pdf'));
+
+        // Request download - should auto-regenerate and download with HTTP 200
+        $response = $this->actingAs($this->reportManager)
+            ->get(route('reports.teams.download', $report));
+
+        $response->assertOk();
+        $this->assertEquals('application/pdf', $response->headers->get('content-type'));
+
+        // Verify the file was regenerated and saved to disk
+        $report->refresh();
+        $this->assertTrue(Storage::disk('local')->exists($report->file_path));
+    }
 }

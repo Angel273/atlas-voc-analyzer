@@ -6,11 +6,14 @@ use App\Jobs\GenerateTeamReportJob;
 use App\Models\KpiGoal;
 use App\Models\Team;
 use App\Models\TeamReport;
+use App\Services\Reports\AiTeamReportNarrativeService;
+use App\Services\Reports\TeamPdfRenderer;
 use App\Services\Reports\TeamReportDataService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -226,22 +229,29 @@ class TeamReportController extends Controller
     /**
      * Download a single generated report PDF.
      */
-    public function download(TeamReport $teamReport): StreamedResponse|RedirectResponse
+    public function download(TeamReport $teamReport, Request $request): StreamedResponse|BinaryFileResponse|RedirectResponse
     {
         Gate::authorize('download', $teamReport);
 
-        if ($teamReport->status !== 'completed' || empty($teamReport->file_path)) {
+        if ($teamReport->status !== 'completed') {
             return back()->with('error', 'El reporte aún no se encuentra completado.');
         }
 
-        if (! Storage::disk('local')->exists($teamReport->file_path)) {
-            return back()->with('error', 'El archivo PDF del reporte no fue encontrado en el almacenamiento.');
+        if (! $this->ensurePdfExists($teamReport)) {
+            return back()->with('error', 'El archivo PDF del reporte no fue encontrado en el almacenamiento y no pudo ser generado.');
         }
 
         $teamCode = $teamReport->team->code ?? 'TEAM';
         $fromStr = $teamReport->period_from->format('Ymd');
         $toStr = $teamReport->period_to->format('Ymd');
         $filename = "Reporte_Equipo_{$teamCode}_{$fromStr}_{$toStr}.pdf";
+
+        if ($request->boolean('inline')) {
+            return Storage::disk('local')->response($teamReport->file_path, $filename, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            ]);
+        }
 
         return Storage::disk('local')->download($teamReport->file_path, $filename, [
             'Content-Type' => 'application/pdf',
@@ -263,7 +273,6 @@ class TeamReportController extends Controller
         $reports = TeamReport::with('team')
             ->whereIn('id', $validated['report_ids'])
             ->where('status', 'completed')
-            ->whereNotNull('file_path')
             ->get();
 
         if ($reports->isEmpty()) {
@@ -289,7 +298,7 @@ class TeamReportController extends Controller
 
         $addedCount = 0;
         foreach ($reports as $report) {
-            if (Storage::disk('local')->exists($report->file_path)) {
+            if ($this->ensurePdfExists($report)) {
                 $content = Storage::disk('local')->get($report->file_path);
                 $teamCode = $report->team->code ?? 'TEAM';
                 $entryName = "Reporte_Equipo_{$teamCode}_{$report->period_from->format('Ymd')}_{$report->period_to->format('Ymd')}_#{$report->id}.pdf";
@@ -303,9 +312,50 @@ class TeamReportController extends Controller
         if ($addedCount === 0) {
             @unlink($zipPath);
 
-            return back()->with('error', 'No se encontraron archivos PDF físicos para los reportes seleccionados.');
+            return back()->with('error', 'No se encontraron archivos PDF físicos ni fue posible regenerarlos para los reportes seleccionados.');
         }
 
         return response()->download($zipPath, $zipFileName)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Ensure the physical PDF file exists in local storage, regenerating on-the-fly if missing from ephemeral containers.
+     */
+    protected function ensurePdfExists(TeamReport $teamReport): bool
+    {
+        if (! empty($teamReport->file_path) && Storage::disk('local')->exists($teamReport->file_path)) {
+            return true;
+        }
+
+        try {
+            $renderer = app(TeamPdfRenderer::class);
+            $reportData = $teamReport->metrics_data;
+
+            if (empty($reportData)) {
+                $reportData = $this->dataService->buildReportData(
+                    $teamReport->team,
+                    $teamReport->period_from->toDateString(),
+                    $teamReport->period_to->toDateString(),
+                    $teamReport->parameters ?? []
+                );
+            }
+
+            $narrative = $teamReport->narrative;
+            if (empty($narrative) || empty($narrative['executive_summary'])) {
+                $narrativeService = app(AiTeamReportNarrativeService::class);
+                $narrative = $narrativeService->buildDeterministicNarrative($reportData);
+            }
+
+            $renderResult = $renderer->renderAndStore($teamReport, $reportData, $narrative);
+            $teamReport->refresh();
+
+            return ! empty($teamReport->file_path) && Storage::disk('local')->exists($teamReport->file_path);
+        } catch (\Throwable $e) {
+            Log::error("Failed to regenerate missing PDF for team report #{$teamReport->id}: {$e->getMessage()}", [
+                'exception' => $e,
+            ]);
+
+            return false;
+        }
     }
 }
