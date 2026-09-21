@@ -106,10 +106,13 @@ class KpiGoal extends Model
 
     /**
      * Generate structured context for AI Assistant instruction.
+     *
+     * @param  array<string, array<string, mixed>>|null  $customGoals
      */
-    public static function getFormattedContext(): string
+    public static function getFormattedContext(?array $customGoals = null): string
     {
-        $goals = static::getGoalsMap();
+        $defaults = static::getDefaults();
+        $goals = $customGoals ?: static::getGoalsMap();
 
         $lines = [];
         $lines[] = '=== METAS OPERACIONALES Y BENCHMARKS ACTIVOS (KPI GOALS) ===';
@@ -117,19 +120,26 @@ class KpiGoal extends Model
         $lines[] = '';
 
         foreach ($goals as $k => $g) {
-            $targetFmt = sprintf('%+.2f', $g['target_value']);
-            $targetPct = sprintf('%+.1f%%', $g['target_percentage']);
-            $warnFmt = sprintf('%+.2f', $g['warning_threshold']);
-            $warnPct = sprintf('%+.1f%%', $g['warning_percentage']);
+            $name = $g['name'] ?? ($defaults[$k]['name'] ?? strtoupper($k));
+            $targetVal = (float) ($g['target_value'] ?? ($defaults[$k]['target_value'] ?? 0));
+            $targetPct = isset($g['target_percentage']) ? (float) $g['target_percentage'] : round($targetVal * 100, 1);
+            $warnVal = isset($g['warning_threshold']) && $g['warning_threshold'] !== null ? (float) $g['warning_threshold'] : (float) ($defaults[$k]['warning_threshold'] ?? 0);
+            $warnPct = isset($g['warning_percentage']) ? (float) $g['warning_percentage'] : round($warnVal * 100, 1);
+            $desc = $g['description'] ?? ($defaults[$k]['description'] ?? null);
+
+            $targetFmt = sprintf('%+.2f', $targetVal);
+            $targetPctStr = sprintf('%+.1f%%', $targetPct);
+            $warnFmt = sprintf('%+.2f', $warnVal);
+            $warnPctStr = sprintf('%+.1f%%', $warnPct);
 
             $lines[] = sprintf(
                 '- %s: Meta = %s (%s). Umbral de atención = %s (%s). %s',
-                $g['name'],
+                $name,
                 $targetFmt,
-                $targetPct,
+                $targetPctStr,
                 $warnFmt,
-                $warnPct,
-                $g['description'] ? "({$g['description']})" : ''
+                $warnPctStr,
+                $desc ? "({$desc})" : ''
             );
         }
 

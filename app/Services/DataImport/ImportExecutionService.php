@@ -8,6 +8,7 @@ use App\Models\Survey;
 use App\Models\SurveyVersion;
 use App\Models\User;
 use App\Services\Audit\AuditService;
+use App\Services\Organization\WorkforceBackfillService;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -195,6 +196,11 @@ class ImportExecutionService
                 foreach (array_chunk($surveysToCategorize, 100) as $chunk) {
                     dispatch(new CategorizeVerbatimsJob($chunk));
                 }
+            }
+
+            // Sync workforce members, teams, and memberships for newly imported surveys
+            if ($acceptedCount > 0) {
+                app(WorkforceBackfillService::class)->run();
             }
 
             return $import;

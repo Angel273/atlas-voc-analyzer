@@ -20,7 +20,10 @@ class Survey extends Model
         'verbatim',
         'agent_bms',
         'agent_name',
+        'agent_id',
         'supervisor',
+        'supervisor_id',
+        'team_id',
         'survey_date',
         'wave',
         'tenure_days',
@@ -42,6 +45,21 @@ class Survey extends Model
     public function import(): BelongsTo
     {
         return $this->belongsTo(Import::class);
+    }
+
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(WorkforceMember::class, 'agent_id');
+    }
+
+    public function supervisorMember(): BelongsTo
+    {
+        return $this->belongsTo(WorkforceMember::class, 'supervisor_id');
+    }
+
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class, 'team_id');
     }
 
     public function verbatimAnalysis(): HasOne

@@ -43,6 +43,18 @@ export default function AppLayout({ children, title, kicker = 'TOOL 003 · VOC A
         { name: 'Data', href: '/data', active: currentUrl.startsWith('/data') },
     ];
 
+    if (user?.permissions.includes('cases.view')) {
+        navItems.push({ name: 'Seguimiento', href: '/performance-cases', active: currentUrl.startsWith('/performance-cases') });
+    }
+
+    if (user?.permissions.includes('reports.view')) {
+        navItems.push({ name: 'Reportes', href: '/reports/teams', active: currentUrl.startsWith('/reports/teams') });
+    }
+
+    if (user?.permissions.includes('teams.manage')) {
+        navItems.push({ name: 'Equipos', href: '/teams', active: currentUrl.startsWith('/teams') });
+    }
+
     if (user?.permissions.includes('categories.manage')) {
         navItems.push({ name: 'Categories', href: '/categories', active: currentUrl.startsWith('/categories') });
     }

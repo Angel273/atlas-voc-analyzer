@@ -12,6 +12,9 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ForecastController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\KpiGoalController;
+use App\Http\Controllers\PerformanceCaseController;
+use App\Http\Controllers\TeamController;
+use App\Http\Controllers\TeamReportController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -129,5 +132,39 @@ Route::middleware('auth')->group(function () {
         // DSL Assistant Copilot (Chat Desplegable)
         Route::post('/admin/dsl-assistant/chat', [AdminDslAssistantController::class, 'chat'])->name('admin.dsl-assistant.chat');
         Route::post('/admin/dsl-assistant/execute', [AdminDslAssistantController::class, 'execute'])->name('admin.dsl-assistant.execute');
+    });
+
+    // 8. Performance Cases Tracking Domain (Seguimiento)
+    Route::middleware('permission:cases.view')->group(function () {
+        Route::get('/performance-cases', [PerformanceCaseController::class, 'index'])->name('performance-cases.index');
+        Route::get('/performance-cases/create', [PerformanceCaseController::class, 'create'])->middleware('permission:cases.create')->name('performance-cases.create');
+        Route::post('/performance-cases', [PerformanceCaseController::class, 'store'])->middleware('permission:cases.create')->name('performance-cases.store');
+        Route::get('/performance-cases/{performanceCase}', [PerformanceCaseController::class, 'show'])->name('performance-cases.show');
+        Route::post('/performance-cases/{performanceCase}/updates', [PerformanceCaseController::class, 'storeUpdate'])->middleware('permission:cases.update')->name('performance-cases.updates.store');
+        Route::post('/performance-cases/{performanceCase}/recalculate', [PerformanceCaseController::class, 'recalculate'])->middleware('permission:cases.update')->name('performance-cases.recalculate');
+        Route::get('/performance-cases/{performanceCase}/versions', [PerformanceCaseController::class, 'compareVersions'])->name('performance-cases.versions');
+        Route::get('/performance-cases/{performanceCase}/updates/{update}/disciplinary', [PerformanceCaseController::class, 'viewDisciplinary'])->middleware('permission:cases.view_disciplinary')->name('performance-cases.disciplinary');
+    });
+
+    // 9. Supervisor Team PDF Reports Domain (Reportes)
+    Route::middleware('permission:reports.view')->group(function () {
+        Route::get('/reports/teams', [TeamReportController::class, 'index'])->name('reports.teams.index');
+        Route::post('/reports/teams/preview', [TeamReportController::class, 'preview'])->middleware('permission:reports.generate')->name('reports.teams.preview');
+        Route::post('/reports/teams/generate', [TeamReportController::class, 'generate'])->middleware('permission:reports.generate')->name('reports.teams.generate');
+        Route::post('/reports/teams/download-zip', [TeamReportController::class, 'downloadZip'])->middleware('permission:reports.download')->name('reports.teams.download-zip');
+        Route::get('/reports/teams/{teamReport}', [TeamReportController::class, 'show'])->name('reports.teams.show');
+        Route::post('/reports/teams/{teamReport}/retry', [TeamReportController::class, 'retry'])->middleware('permission:reports.generate')->name('reports.teams.retry');
+        Route::get('/reports/teams/{teamReport}/download', [TeamReportController::class, 'download'])->middleware('permission:reports.download')->name('reports.teams.download');
+    });
+
+    // 10. Team Management Domain (Equipos)
+    Route::middleware('permission:teams.manage')->group(function () {
+        Route::get('/teams', [TeamController::class, 'index'])->name('teams.index');
+        Route::post('/teams', [TeamController::class, 'store'])->name('teams.store');
+        Route::put('/teams/{team}', [TeamController::class, 'update'])->name('teams.update');
+        Route::delete('/teams/{team}', [TeamController::class, 'destroy'])->name('teams.destroy');
+        Route::post('/teams/{team}/members', [TeamController::class, 'addMember'])->name('teams.members.add');
+        Route::delete('/teams/{team}/members/{member}', [TeamController::class, 'removeMember'])->name('teams.members.remove');
+        Route::post('/teams/sync-backfill', [TeamController::class, 'syncBackfill'])->name('teams.sync-backfill');
     });
 });

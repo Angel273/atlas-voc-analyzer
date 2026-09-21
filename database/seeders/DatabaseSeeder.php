@@ -38,6 +38,18 @@ class DatabaseSeeder extends Seeder
 
             'categories.manage' => 'Manage verbatim categories catalog',
 
+            'cases.view' => 'View performance tracking cases',
+            'cases.create' => 'Create new performance tracking cases',
+            'cases.update' => 'Update cases and log coaching/disciplinary sessions',
+            'cases.close' => 'Close resolved performance tracking cases',
+            'cases.view_disciplinary' => 'View sensitive disciplinary details within case updates',
+
+            'reports.view' => 'View team performance reports',
+            'reports.generate' => 'Generate team performance reports and AI narrative',
+            'reports.download' => 'Download generated team performance reports (PDF/ZIP)',
+
+            'teams.manage' => 'Manage teams and workforce memberships',
+
             'users.manage' => 'Create and manage system users',
             'roles.manage' => 'Manage roles and assignments',
             'permissions.manage' => 'Manage system permissions',
@@ -79,6 +91,9 @@ class DatabaseSeeder extends Seeder
             'identity.view',
             'audit.view',
             'categories.manage',
+            'cases.view', 'cases.create', 'cases.update', 'cases.close',
+            'reports.view', 'reports.generate', 'reports.download',
+            'teams.manage',
         ];
         $analystRole->permissions()->sync(
             collect($analystPermissions)->map(fn ($p) => $createdPermissions[$p]->id)->toArray()
@@ -90,6 +105,7 @@ class DatabaseSeeder extends Seeder
             'dashboard.view',
             'ai.chat', 'ai.history',
             'forecast.view',
+            'reports.view', 'reports.download',
         ];
         $viewerRole->permissions()->sync(
             collect($viewerPermissions)->map(fn ($p) => $createdPermissions[$p]->id)->toArray()
