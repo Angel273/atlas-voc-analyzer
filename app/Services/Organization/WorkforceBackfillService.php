@@ -56,7 +56,7 @@ class WorkforceBackfillService
                     continue;
                 }
 
-                $supCode = 'SUP-'.Str::upper(Str::slug($trimmedSup, ''));
+                $supCode = substr('SUP-'.Str::upper(Str::slug($trimmedSup, '')), 0, 50);
                 $supervisorMember = WorkforceMember::firstOrCreate(
                     ['name' => $trimmedSup, 'role' => 'supervisor'],
                     [
@@ -66,7 +66,7 @@ class WorkforceBackfillService
                     ]
                 );
 
-                $teamCode = 'TEAM-'.Str::upper(Str::slug($trimmedSup, ''));
+                $teamCode = substr('TEAM-'.Str::upper(Str::slug($trimmedSup, '')), 0, 50);
                 $team = Team::firstOrCreate(
                     ['code' => $teamCode],
                     [
@@ -76,6 +76,10 @@ class WorkforceBackfillService
                         'metadata' => ['created_from_backfill' => true],
                     ]
                 );
+
+                if (! $team->supervisor_id) {
+                    $team->update(['supervisor_id' => $supervisorMember->id]);
+                }
 
                 if ($team->wasRecentlyCreated) {
                     $teamsCreated++;
@@ -280,5 +284,22 @@ class WorkforceBackfillService
             'surveys_linked' => $surveysLinked,
             'conflicts' => $conflicts,
         ];
+    }
+
+    /**
+     * Alias for run() to provide intuitive naming.
+     *
+     * @return array{
+     *     agents_processed: int,
+     *     supervisors_processed: int,
+     *     teams_created: int,
+     *     memberships_created: int,
+     *     surveys_linked: int,
+     *     conflicts: array<int, array{type: string, description: string, agent_bms?: string, supervisor?: string, details?: array}>
+     * }
+     */
+    public function backfill(): array
+    {
+        return $this->run();
     }
 }

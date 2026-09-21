@@ -49,20 +49,28 @@ export default function TeamsIndex(props: Props) {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [editingTeam, setEditingTeam] = useState<TeamItem | null>(null);
     const [managingMembersTeam, setManagingMembersTeam] = useState<TeamItem | null>(null);
+    const [showMemberModal, setShowMemberModal] = useState(false);
     const [syncing, setSyncing] = useState(false);
 
     // Form for Create/Edit Team
-    const { data: teamData, setData: setTeamData, post: postTeam, put: putTeam, reset: resetTeam, processing: savingTeam, errors: teamErrors } = useForm({
+    const { data: teamData, setData: setTeamData, reset: resetTeam, processing: savingTeam, errors: teamErrors } = useForm({
         name: '',
         code: '',
         supervisor_id: '',
         is_active: true,
     });
 
-    // Form for Add Member
+    // Form for Add Member to Team
     const { data: memberData, setData: setMemberData, post: postMember, reset: resetMember, processing: addingMember } = useForm({
         workforce_member_id: '',
         effective_from: new Date().toISOString().split('T')[0],
+    });
+
+    // Form for Direct Workforce Member Creation (Supervisor/Agent)
+    const { data: newMemberData, setData: setNewMemberData, post: postNewMember, reset: resetNewMember, processing: savingNewMember, errors: newMemberErrors } = useForm({
+        name: '',
+        role: 'supervisor',
+        external_id: '',
     });
 
     const openCreateModal = () => {
@@ -90,21 +98,36 @@ export default function TeamsIndex(props: Props) {
 
     const handleSaveTeam = (e: React.FormEvent) => {
         e.preventDefault();
+        const payload = {
+            ...teamData,
+            supervisor_id: teamData.supervisor_id ? parseInt(teamData.supervisor_id, 10) : null,
+        };
+
         if (editingTeam) {
-            putTeam(`/teams/${editingTeam.id}`, {
+            router.put(`/teams/${editingTeam.id}`, payload, {
                 onSuccess: () => {
                     setShowCreateModal(false);
                     resetTeam();
                 },
             });
         } else {
-            postTeam('/teams', {
+            router.post('/teams', payload, {
                 onSuccess: () => {
                     setShowCreateModal(false);
                     resetTeam();
                 },
             });
         }
+    };
+
+    const handleSaveNewMember = (e: React.FormEvent) => {
+        e.preventDefault();
+        postNewMember('/teams/workforce-members', {
+            onSuccess: () => {
+                setShowMemberModal(false);
+                resetNewMember();
+            },
+        });
     };
 
     const handleDeleteTeam = (team: TeamItem) => {
@@ -162,6 +185,18 @@ export default function TeamsIndex(props: Props) {
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
                         {syncing ? 'Sincronizando...' : 'Sincronizar desde Encuestas'}
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            resetNewMember();
+                            setShowMemberModal(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#ccd1ca] bg-white text-xs font-semibold text-[#18221d] rounded hover:bg-[#f2f1ea] transition-colors"
+                        title="Registrar un supervisor o agente manualmente"
+                    >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Nuevo Supervisor / Colaborador
                     </button>
 
                     <button
@@ -351,21 +386,42 @@ export default function TeamsIndex(props: Props) {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold uppercase tracking-wider text-[#18221d] mb-1">
-                                    Supervisor a Cargo
-                                </label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-bold uppercase tracking-wider text-[#18221d]">
+                                        Supervisor a Cargo
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowCreateModal(false);
+                                            resetNewMember();
+                                            setNewMemberData('role', 'supervisor');
+                                            setShowMemberModal(true);
+                                        }}
+                                        className="text-[11px] text-emerald-800 hover:underline font-semibold flex items-center gap-1"
+                                    >
+                                        <Plus className="w-3 h-3" /> Registrar nuevo supervisor
+                                    </button>
+                                </div>
                                 <select
                                     value={teamData.supervisor_id}
                                     onChange={(e) => setTeamData('supervisor_id', e.target.value)}
                                     className="w-full px-3 py-2 border border-[#ccd1ca] rounded text-sm bg-white focus:outline-none focus:border-[#18221d]"
                                 >
-                                    <option value="">Seleccione un supervisor...</option>
+                                    <option value="">
+                                        {supervisors.length === 0 ? 'Sin supervisores registrados aún...' : 'Seleccione un supervisor...'}
+                                    </option>
                                     {supervisors.map((s) => (
                                         <option key={s.id} value={s.id}>
                                             {s.name} {s.external_id ? `(${s.external_id})` : ''}
                                         </option>
                                     ))}
                                 </select>
+                                {supervisors.length === 0 && (
+                                    <p className="text-[11px] text-amber-800 mt-1 bg-amber-50/80 p-2 rounded border border-amber-200 leading-normal">
+                                        No hay supervisores en el catálogo. Puedes pulsar <strong>"Registrar nuevo supervisor"</strong> arriba o utilizar <strong>"Sincronizar desde Encuestas"</strong> en la pantalla principal.
+                                    </p>
+                                )}
                                 {teamErrors.supervisor_id && <p className="text-red-600 text-xs mt-1">{teamErrors.supervisor_id}</p>}
                             </div>
 
@@ -506,6 +562,87 @@ export default function TeamsIndex(props: Props) {
                                 Cerrar
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: DIRECT WORKFORCE MEMBER CREATION */}
+            {showMemberModal && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                    <div className="bg-white border border-[#ccd1ca] rounded-lg shadow-lg max-w-md w-full p-6 space-y-4">
+                        <div className="flex items-center justify-between border-b border-[#ccd1ca] pb-3">
+                            <h3 className="font-serif font-bold text-[#18221d] flex items-center gap-2">
+                                <UserPlus className="w-4 h-4 text-[#18221d]" />
+                                Registrar Colaborador / Supervisor
+                            </h3>
+                            <button onClick={() => setShowMemberModal(false)} className="text-[#687169] hover:text-[#18221d]">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveNewMember} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-[#18221d] mb-1">
+                                    Nombre Completo <span className="text-red-600">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newMemberData.name}
+                                    onChange={(e) => setNewMemberData('name', e.target.value)}
+                                    placeholder="Ej. Diana Prince"
+                                    className="w-full px-3 py-2 border border-[#ccd1ca] rounded text-sm focus:outline-none focus:border-[#18221d]"
+                                    required
+                                />
+                                {newMemberErrors.name && <p className="text-red-600 text-xs mt-1">{newMemberErrors.name}</p>}
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-[#18221d] mb-1">
+                                    Rol en la Organización <span className="text-red-600">*</span>
+                                </label>
+                                <select
+                                    value={newMemberData.role}
+                                    onChange={(e) => setNewMemberData('role', e.target.value)}
+                                    className="w-full px-3 py-2 border border-[#ccd1ca] rounded text-sm bg-white focus:outline-none focus:border-[#18221d]"
+                                >
+                                    <option value="supervisor">Supervisor (Liderazgo de equipo)</option>
+                                    <option value="agent">Agente (Atención de llamadas/encuestas)</option>
+                                    <option value="both">Ambos (Supervisor y Agente activo)</option>
+                                </select>
+                                {newMemberErrors.role && <p className="text-red-600 text-xs mt-1">{newMemberErrors.role}</p>}
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-[#18221d] mb-1">
+                                    Identificador Externo / Código BMS (Opcional)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newMemberData.external_id}
+                                    onChange={(e) => setNewMemberData('external_id', e.target.value)}
+                                    placeholder="Ej. 6404592 o SUP-DP"
+                                    className="w-full px-3 py-2 border border-[#ccd1ca] rounded text-sm font-mono focus:outline-none focus:border-[#18221d]"
+                                />
+                                {newMemberErrors.external_id && <p className="text-red-600 text-xs mt-1">{newMemberErrors.external_id}</p>}
+                            </div>
+
+                            <div className="pt-3 border-t border-[#ccd1ca] flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMemberModal(false)}
+                                    className="px-3.5 py-1.5 border border-[#ccd1ca] rounded text-xs text-[#687169] hover:bg-[#f2f1ea]"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingNewMember}
+                                    className="px-4 py-1.5 bg-[#18221d] text-white rounded text-xs font-bold uppercase tracking-wider hover:bg-[#283830] transition-colors disabled:opacity-50"
+                                >
+                                    {savingNewMember ? 'Guardando...' : 'Guardar Colaborador'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

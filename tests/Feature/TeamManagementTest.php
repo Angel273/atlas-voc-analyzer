@@ -169,4 +169,79 @@ class TeamManagementTest extends TestCase
 
         $this->assertNotNull($membership->effective_to);
     }
+
+    public function test_can_create_team_without_supervisor(): void
+    {
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('teams.store'), [
+                'name' => 'Team No Supervisor',
+                'code' => 'NOSUP-01',
+                'supervisor_id' => null,
+                'is_active' => true,
+            ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('teams', [
+            'name' => 'Team No Supervisor',
+            'code' => 'NOSUP-01',
+            'supervisor_id' => null,
+        ]);
+    }
+
+    public function test_can_create_workforce_member_directly(): void
+    {
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('teams.workforce-members.store'), [
+                'name' => 'Diana Prince',
+                'role' => 'supervisor',
+                'external_id' => 'SUP-DIANA',
+            ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('workforce_members', [
+            'name' => 'Diana Prince',
+            'role' => 'supervisor',
+            'external_id' => 'SUP-DIANA',
+        ]);
+    }
+
+    public function test_can_trigger_sync_backfill(): void
+    {
+        $import = Import::create([
+            'original_filename' => 'test_backfill.xlsx',
+            'file_hash' => 'hash_bf_test',
+            'sheet_name' => 'Sheet1',
+            'used_mapping' => [],
+            'status' => 'completed',
+        ]);
+
+        Survey::create([
+            'import_id' => $import->id,
+            'survey_id' => 9988,
+            'survey_date' => '2026-01-01',
+            'agent_bms' => '2001',
+            'agent_name' => 'John Constantine',
+            'supervisor' => 'Zatanna Zatara',
+            'nps_score' => 10,
+            'csat_score' => 5,
+            'professionalism_score' => 5,
+            'record_hash' => 'hash_survey_bf',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('teams.sync-backfill'));
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        $this->assertDatabaseHas('workforce_members', [
+            'name' => 'Zatanna Zatara',
+            'role' => 'supervisor',
+        ]);
+
+        $this->assertDatabaseHas('workforce_members', [
+            'name' => 'John Constantine',
+            'role' => 'agent',
+        ]);
+    }
 }

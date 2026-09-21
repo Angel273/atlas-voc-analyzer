@@ -165,6 +165,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('/teams/{team}', [TeamController::class, 'destroy'])->name('teams.destroy');
         Route::post('/teams/{team}/members', [TeamController::class, 'addMember'])->name('teams.members.add');
         Route::delete('/teams/{team}/members/{member}', [TeamController::class, 'removeMember'])->name('teams.members.remove');
+        Route::post('/teams/workforce-members', [TeamController::class, 'storeWorkforceMember'])->name('teams.workforce-members.store');
         Route::post('/teams/sync-backfill', [TeamController::class, 'syncBackfill'])->name('teams.sync-backfill');
     });
 });

@@ -61,14 +61,22 @@ class TeamController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'code' => ['required', 'string', 'max:50', 'unique:teams,code'],
-            'supervisor_id' => ['nullable', 'exists:workforce_members,id'],
+            'supervisor_id' => ['nullable'],
             'is_active' => ['boolean'],
         ]);
 
+        $supervisorId = (! empty($validated['supervisor_id']) && is_numeric($validated['supervisor_id']))
+            ? (int) $validated['supervisor_id']
+            : null;
+
+        if ($supervisorId !== null && ! WorkforceMember::where('id', $supervisorId)->exists()) {
+            return back()->withErrors(['supervisor_id' => 'El supervisor seleccionado no es válido.']);
+        }
+
         $team = Team::create([
-            'name' => $validated['name'],
-            'code' => strtoupper($validated['code']),
-            'supervisor_id' => $validated['supervisor_id'] ?? null,
+            'name' => trim($validated['name']),
+            'code' => strtoupper(trim($validated['code'])),
+            'supervisor_id' => $supervisorId,
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -85,14 +93,22 @@ class TeamController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'code' => ['required', 'string', 'max:50', Rule::unique('teams', 'code')->ignore($team->id)],
-            'supervisor_id' => ['nullable', 'exists:workforce_members,id'],
+            'supervisor_id' => ['nullable'],
             'is_active' => ['boolean'],
         ]);
 
+        $supervisorId = (! empty($validated['supervisor_id']) && is_numeric($validated['supervisor_id']))
+            ? (int) $validated['supervisor_id']
+            : null;
+
+        if ($supervisorId !== null && ! WorkforceMember::where('id', $supervisorId)->exists()) {
+            return back()->withErrors(['supervisor_id' => 'El supervisor seleccionado no es válido.']);
+        }
+
         $team->update([
-            'name' => $validated['name'],
-            'code' => strtoupper($validated['code']),
-            'supervisor_id' => $validated['supervisor_id'] ?? null,
+            'name' => trim($validated['name']),
+            'code' => strtoupper(trim($validated['code'])),
+            'supervisor_id' => $supervisorId,
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -149,7 +165,7 @@ class TeamController extends Controller
             'effective_to' => null,
         ]);
 
-        return back()->with('success', "{$member->name} asignado al equipo '{$team->name}'.");
+        return back()->with('success', "Colaborador '{$member->name}' incorporado al equipo '{$team->name}'.");
     }
 
     /**
@@ -171,17 +187,46 @@ class TeamController extends Controller
     }
 
     /**
+     * Store a new workforce member (supervisor, agent, or both) directly.
+     */
+    public function storeWorkforceMember(Request $request): RedirectResponse
+    {
+        Gate::authorize('create', Team::class);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:150'],
+            'role' => ['required', 'in:supervisor,agent,both'],
+            'external_id' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $member = WorkforceMember::create([
+            'name' => trim($validated['name']),
+            'role' => $validated['role'],
+            'external_id' => ! empty($validated['external_id']) ? trim($validated['external_id']) : null,
+            'is_active' => true,
+        ]);
+
+        $roleLabel = match ($member->role) {
+            'supervisor' => 'Supervisor',
+            'both' => 'Supervisor y Agente',
+            default => 'Agente',
+        };
+
+        return back()->with('success', "Colaborador '{$member->name}' registrado exitosamente como {$roleLabel}.");
+    }
+
+    /**
      * Trigger automatic workforce and teams sync/backfill from surveys data.
      */
     public function syncBackfill(WorkforceBackfillService $backfillService): RedirectResponse
     {
         Gate::authorize('create', Team::class);
 
-        $result = $backfillService->backfill();
+        $result = $backfillService->run();
 
         return back()->with(
             'success',
-            "Sincronización completada: {$result['teams_created']} equipos nuevos, {$result['supervisors_created']} supervisores y {$result['agents_created']} agentes procesados desde las encuestas."
+            "Sincronización completada: {$result['teams_created']} equipos creados/verificados, {$result['supervisors_processed']} supervisores y {$result['agents_processed']} agentes vinculados desde las encuestas."
         );
     }
 }
