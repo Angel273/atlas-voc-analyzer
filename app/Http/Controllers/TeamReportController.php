@@ -200,6 +200,7 @@ class TeamReportController extends Controller
     {
         Gate::authorize('view', $teamReport);
 
+        $this->ensureAllAgentsReviewed($teamReport);
         $teamReport->load(['team.supervisor', 'createdByUser', 'previousReport']);
 
         return Inertia::render('Reports/Teams/Show', [
@@ -323,6 +324,8 @@ class TeamReportController extends Controller
      */
     protected function ensurePdfExists(TeamReport $teamReport): bool
     {
+        $this->ensureAllAgentsReviewed($teamReport);
+
         if (! empty($teamReport->file_path) && Storage::disk('local')->exists($teamReport->file_path)) {
             return true;
         }
@@ -357,5 +360,44 @@ class TeamReportController extends Controller
 
             return false;
         }
+    }
+
+    /**
+     * Ensure that all agents in metrics_data have a complete review entry in narrative,
+     * self-healing existing reports in the database if any were omitted.
+     */
+    protected function ensureAllAgentsReviewed(TeamReport $teamReport): bool
+    {
+        if ($teamReport->status !== 'completed' || empty($teamReport->metrics_data['agent_reviews'])) {
+            return false;
+        }
+
+        $narrative = $teamReport->narrative ?? [];
+        $existingReviews = $narrative['agent_reviews'] ?? [];
+        $agentsData = $teamReport->metrics_data['agent_reviews'];
+        $narrativeService = app(AiTeamReportNarrativeService::class);
+
+        $baselineReviews = array_map(
+            fn ($ag) => $narrativeService->buildSingleAgentReview($ag),
+            $agentsData
+        );
+
+        $mergedReviews = $narrativeService->mergeAgentReviews($baselineReviews, $existingReviews);
+
+        // Check if reviews were updated or enriched
+        if ($mergedReviews !== $existingReviews) {
+            $narrative['agent_reviews'] = $mergedReviews;
+            $teamReport->update(['narrative' => $narrative]);
+            $teamReport->refresh();
+
+            // If a PDF already existed on disk, remove it so it regenerates with the full reviews
+            if (! empty($teamReport->file_path) && Storage::disk('local')->exists($teamReport->file_path)) {
+                Storage::disk('local')->delete($teamReport->file_path);
+            }
+
+            return true;
+        }
+
+        return false;
     }
 }

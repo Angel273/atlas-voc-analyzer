@@ -745,4 +745,161 @@ class TeamReportGenerationTest extends TestCase
         $report->refresh();
         $this->assertTrue(Storage::disk('local')->exists($report->file_path));
     }
+
+    public function test_merge_agent_reviews_guarantees_all_agents_have_reviews_even_if_ai_omits_some_or_inverts_names(): void
+    {
+        $narrativeService = app(AiTeamReportNarrativeService::class);
+
+        $baseline = [
+            [
+                'agent_name' => 'Flores Gomez, Nicole D',
+                'agent_bms' => '6404594',
+                'assessment' => 'Baseline Nicole assessment',
+                'action' => 'Baseline Nicole action',
+                'verbatim_analysis' => 'Baseline Nicole verbatim',
+                'strengths' => ['Cortesía'],
+                'friction_points' => ['Demora'],
+            ],
+            [
+                'agent_name' => 'Perez Martinez, Carlos',
+                'agent_bms' => '6404595',
+                'assessment' => 'Baseline Carlos assessment',
+                'action' => 'Baseline Carlos action',
+                'verbatim_analysis' => 'Baseline Carlos verbatim',
+                'strengths' => ['Rapidez'],
+                'friction_points' => [],
+            ],
+        ];
+
+        // AI only returned Carlos with inverted name, and completely omitted Nicole
+        $aiReviews = [
+            [
+                'agent_name' => 'Carlos Perez Martinez',
+                'assessment' => 'AI Carlos assessment',
+                'action' => 'AI Carlos coaching',
+                'verbatim_analysis' => 'AI Carlos verbatim',
+                'strengths' => ['AI fortaleza'],
+                'friction_points' => ['AI fricción'],
+            ],
+        ];
+
+        $merged = $narrativeService->mergeAgentReviews($baseline, $aiReviews);
+
+        $this->assertCount(2, $merged, 'Must have exactly 2 agents in merged reviews');
+
+        // Nicole was omitted by AI, so she gets the complete baseline review
+        $nicoleReview = collect($merged)->firstWhere('agent_name', 'Flores Gomez, Nicole D');
+        $this->assertNotNull($nicoleReview);
+        $this->assertEquals('Baseline Nicole assessment', $nicoleReview['assessment']);
+        $this->assertEquals('Baseline Nicole action', $nicoleReview['action']);
+        $this->assertEquals('Baseline Nicole verbatim', $nicoleReview['verbatim_analysis']);
+
+        // Carlos had inverted name order, but got matched and received AI review
+        $carlosReview = collect($merged)->firstWhere('agent_name', 'Perez Martinez, Carlos');
+        $this->assertNotNull($carlosReview);
+        $this->assertEquals('AI Carlos assessment', $carlosReview['assessment']);
+        $this->assertEquals('AI Carlos coaching', $carlosReview['action']);
+    }
+
+    public function test_show_and_download_self_heals_missing_agent_reviews_for_existing_report(): void
+    {
+        // Create report where Nicole is in metrics_data but completely missing from narrative
+        $report = TeamReport::create([
+            'team_id' => $this->team->id,
+            'period_from' => '2026-01-01',
+            'period_to' => '2026-01-15',
+            'cutoff_date' => '2026-01-15',
+            'data_version' => 'data_v_heal',
+            'model' => 'gemini-1.5-flash',
+            'status' => 'completed',
+            'progress' => 100,
+            'stage' => 'Completado con éxito',
+            'file_path' => 'reports/heal_test.pdf',
+            'file_hash' => 'dummy_hash_heal',
+            'file_size' => 1234,
+            'created_by_user_id' => $this->reportManager->id,
+            'metrics_data' => [
+                'team' => [
+                    'id' => $this->team->id,
+                    'name' => $this->team->name,
+                    'code' => $this->team->code,
+                    'supervisor_name' => $this->supervisor->name,
+                ],
+                'period' => ['from' => '2026-01-01', 'to' => '2026-01-15', 'cutoff_date' => '2026-01-15'],
+                'data_version' => 'data_v_heal',
+                'is_low_sample' => false,
+                'metrics' => [
+                    'survey_volume' => 26,
+                    'nps_score' => 0.46,
+                    'csat_score' => 0.731,
+                    'professionalism_score' => 0.885,
+                    'goals_comparison' => [
+                        'nps' => ['target' => 0.54, 'actual' => 0.46, 'difference' => -0.08, 'meets_goal' => false],
+                        'csat' => ['target' => 0.83, 'actual' => 0.731, 'difference' => -0.099, 'meets_goal' => false],
+                        'professionalism' => ['target' => 0.91, 'actual' => 0.885, 'difference' => -0.025, 'meets_goal' => false],
+                    ],
+                ],
+                'daily_trends' => [
+                    ['date' => '2026-01-05', 'volume' => 13, 'nps' => 0.4, 'csat' => 0.7, 'professionalism' => 0.85],
+                    ['date' => '2026-01-10', 'volume' => 13, 'nps' => 0.5, 'csat' => 0.76, 'professionalism' => 0.92],
+                ],
+                'agent_reviews' => [
+                    [
+                        'agent_name' => 'Flores Gomez, Nicole D',
+                        'agent_bms' => '6404594',
+                        'volume' => 26,
+                        'nps' => 0.46,
+                        'csat' => 0.731,
+                        'professionalism' => 0.885,
+                        'promoters_count' => 19,
+                        'detractors_count' => 7,
+                        'passives_count' => 0,
+                        'status' => 'warning',
+                        'goals_comparison' => [],
+                        'verbatims' => [
+                            ['sentiment' => 'promoter', 'verbatim' => 'Excelente atención y muy amable', 'category' => 'Atención', 'date' => '2026-01-05', 'nps_score' => 10],
+                            ['sentiment' => 'detractor', 'verbatim' => 'Mucha demora en la respuesta', 'category' => 'Tiempo', 'date' => '2026-01-06', 'nps_score' => 1],
+                        ],
+                        'daily_trends' => [],
+                        'top_categories' => ['Atención', 'Tiempo'],
+                    ],
+                ],
+                'verbatim_categories' => [],
+                'open_cases' => [],
+            ],
+            // Notice: narrative is completely empty of agent_reviews (simulating the bug reported by user)
+            'narrative' => [
+                'executive_summary' => 'Resumen de prueba',
+                'team_strengths' => ['Compromiso'],
+                'team_risks' => ['Tiempo'],
+                'agent_reviews' => [],
+                'recommended_actions' => ['Capacitación'],
+                'data_quality_notes' => '100% verificado',
+            ],
+        ]);
+
+        // 1. Visit show page
+        $showResponse = $this->actingAs($this->reportManager)
+            ->get(route('reports.teams.show', $report));
+
+        $showResponse->assertOk();
+
+        // 2. Check that the report was self-healed in the database
+        $report->refresh();
+        $this->assertCount(1, $report->narrative['agent_reviews'], 'Nicole D must be added to agent_reviews');
+        $nicoleReview = $report->narrative['agent_reviews'][0];
+        $this->assertEquals('Flores Gomez, Nicole D', $nicoleReview['agent_name']);
+        $this->assertNotEmpty($nicoleReview['assessment']);
+        $this->assertNotEmpty($nicoleReview['action']);
+        $this->assertNotEmpty($nicoleReview['verbatim_analysis']);
+        $this->assertNotEmpty($nicoleReview['strengths']);
+        $this->assertNotEmpty($nicoleReview['friction_points']);
+
+        // 3. Download PDF
+        $downloadResponse = $this->actingAs($this->reportManager)
+            ->get(route('reports.teams.download', $report));
+
+        $downloadResponse->assertOk();
+        $this->assertEquals('application/pdf', $downloadResponse->headers->get('content-type'));
+    }
 }

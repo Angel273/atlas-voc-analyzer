@@ -83,6 +83,109 @@ interface TeamReportShowProps {
     };
 }
 
+const getAgentNarrative = (
+    ag: {
+        agent_name: string;
+        agent_bms?: string;
+        volume: number;
+        nps: number | null;
+        csat: number | null;
+        professionalism: number | null;
+        status?: string;
+        verbatims?: Array<{ sentiment: string; verbatim: string; category?: string; date?: string }>;
+        top_categories?: string[];
+    },
+    reviews?: Array<{
+        agent_name: string;
+        agent_bms?: string;
+        assessment?: string;
+        action?: string;
+        verbatim_analysis?: string;
+        strengths?: string[];
+        friction_points?: string[];
+    }>
+) => {
+    if (reviews && reviews.length > 0) {
+        // 1. Exact match
+        const exact = reviews.find(
+            (nr) => nr.agent_name?.trim().toLowerCase() === ag.agent_name?.trim().toLowerCase()
+        );
+        if (exact) return exact;
+
+        // 2. BMS match
+        if (ag.agent_bms) {
+            const bmsMatch = reviews.find(
+                (nr) => nr.agent_bms && String(nr.agent_bms).trim() === String(ag.agent_bms).trim()
+            );
+            if (bmsMatch) return bmsMatch;
+        }
+
+        // 3. Word tokens match (order-independent, accent-insensitive)
+        const tokenize = (str: string) =>
+            str
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]/g, ' ')
+                .split(/\s+/)
+                .filter(Boolean)
+                .sort()
+                .join(' ');
+
+        const agToken = tokenize(ag.agent_name);
+        if (agToken) {
+            const tokenMatch = reviews.find(
+                (nr) => nr.agent_name && tokenize(nr.agent_name) === agToken
+            );
+            if (tokenMatch) return tokenMatch;
+        }
+    }
+
+    // Dynamic guaranteed fallback so every agent has a rich analysis
+    const npsFmt = ag.nps !== null ? (ag.nps > 0 ? `+${ag.nps.toFixed(2)}` : ag.nps.toFixed(2)) : 'N/D';
+    const csatFmt = ag.csat !== null ? `${(ag.csat * 100).toFixed(0)}%` : 'N/D';
+    const profFmt = ag.professionalism !== null ? `${(ag.professionalism * 100).toFixed(0)}%` : 'N/D';
+
+    const vbs = ag.verbatims || [];
+    const promQuotes = vbs.filter((v) => v.sentiment === 'promoter');
+    const detQuotes = vbs.filter((v) => v.sentiment === 'detractor');
+
+    const topC = ag.top_categories && ag.top_categories.length > 0 ? ` con concentración en: ${ag.top_categories.join(', ')}` : '';
+    const vbAnalysis =
+        vbs.length > 0
+            ? `Se registraron ${vbs.length} comentarios de clientes${topC}. ${
+                  promQuotes.length > 0 ? `${promQuotes.length} menciones promotoras favorables. ` : ''
+              }${detQuotes.length > 0 ? `${detQuotes.length} menciones con oportunidad de resolución.` : ''}`
+            : 'No se registraron comentarios textuales de clientes en este corte evaluado.';
+
+    return {
+        agent_name: ag.agent_name,
+        agent_bms: ag.agent_bms || '',
+        assessment: `Volumen: ${ag.volume} encuestas. NPS: ${npsFmt}, CSAT: ${csatFmt}, Profesionalismo: ${profFmt}. ${
+            ag.status === 'critical'
+                ? 'Desempeño en rango crítico con oportunidades prioritarias de satisfacción.'
+                : ag.status === 'warning'
+                ? 'Desempeño con oportunidad de mejora frente a metas de satisfacción.'
+                : 'Rendimiento alineado con las metas operacionales de calidad.'
+        }`,
+        action:
+            ag.status === 'critical'
+                ? 'Programar sesión 1 a 1 de calibración de llamadas y plan de acompañamiento intensivo.'
+                : ag.status === 'warning'
+                ? 'Reforzar técnicas de resolución en primer contacto y empatía.'
+                : 'Reconocer buen desempeño e incentivar como referente en mejores prácticas.',
+        verbatim_analysis: vbAnalysis,
+        strengths:
+            promQuotes.length > 0
+                ? ['Reconocimiento explícito de clientes por trato cordial, disposición y cortesía.']
+                : ['Atención continua y registro consistente de interacciones con usuarios.'],
+        friction_points:
+            detQuotes.length > 0
+                ? ['Comentarios de clientes señalando inconformidad con tiempos de resolución o respuesta.']
+                : ['Mantener consistencia operativa en la gestión de casos atípicos.'],
+    };
+};
+
 export default function TeamReportShow({ report }: TeamReportShowProps) {
     if (!report) {
         return (
@@ -398,9 +501,7 @@ export default function TeamReportShow({ report }: TeamReportShowProps) {
                                 <tbody className="divide-y divide-[#ecebe4]">
                                     {report.metrics_data.agent_reviews.map((ag, idx) => {
                                         const isExpanded = expandedAgent === ag.agent_name;
-                                        const agentNarrative = narrative?.agent_reviews?.find(
-                                            (nr) => nr.agent_name?.trim().toLowerCase() === ag.agent_name?.trim().toLowerCase()
-                                        );
+                                        const agentNarrative = getAgentNarrative(ag, narrative?.agent_reviews);
 
                                         return (
                                             <React.Fragment key={idx}>
